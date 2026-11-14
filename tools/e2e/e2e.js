@@ -12,6 +12,7 @@ const results = []; let finished = false;
 console.log('E2E starting (emulated, not a physical device)');
 // Never let the process end quietly: a silent exit must fail the job.
 process.on('exit', code => { if (!finished) { console.error(`E2E EXITED BEFORE COMPLETING (code ${code}, ${results.length} results)`); process.exitCode = 3; } });
+setTimeout(() => { console.error(`E2E TIMEOUT after 25 min (${results.length} results so far)`); process.exit(6); }, 25 * 60 * 1000);   // a hang must fail the job, not stall it
 process.on('unhandledRejection', e => { console.error('E2E unhandled rejection:', e); process.exit(4); });
 function rec(name, status, detail = '') { results.push({ name, status, detail }); console.log(`${status.padEnd(12)} ${name}${detail ? '  — ' + detail : ''}`); }
 const pass = (n, ok, d) => rec(n, ok ? 'PASS' : 'FAIL', d);
