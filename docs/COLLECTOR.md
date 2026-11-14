@@ -6,10 +6,10 @@ Import metadata (never audio) from Spotify and YouTube → match to downloadable
 | Milestone | Scope | State |
 |---|---|---|
 | 1 | Audit, Collector UI, Spotify OAuth (PKCE), playlist + liked-song import, unified catalogue | **Implemented** (see test evidence below) |
-| 2 | YouTube OAuth + import | Not started (card shown disabled) |
-| 3 | Matching engine + download-permission checks | Not started |
-| 4 | Android download manager + automatic Swarify playlists | Not started |
-| 5 | Incremental sync, security review, full regression | Not started (selected-playlist sync and removed-entry tracking already in place) |
+| 2 | YouTube OAuth + import (+ CSV import) | **Implemented** (tested against a fake Google; real-account run pending) |
+| 3 | Matching engine + download-permission checks | **Implemented** (simulated catalogues; real-catalogue run pending) |
+| 4 | Android download manager + automatic Swarify playlists | **Implemented** — JS manager fully tested; Android plugin compiles in CI; emulator test below |
+| 5 | Incremental sync, security review, full regression | **Implemented** — see `SECURITY_REVIEW.md` |
 
 ## One-time Spotify setup
 1. https://developer.spotify.com/dashboard → create an app.
@@ -84,3 +84,19 @@ Imported songs are matched to recordings you can legitimately keep. **Downloadin
 - **Copy results** puts the real outcome (ordered CSV with confidence, source, permission and reason per song) on the clipboard so it can be shared and analysed.
 - **Expectation:** commercial 90s Bollywood is rarely freely licensed. Expect mostly *Unavailable* from Jamendo / Internet Archive / SoundCloud; matches against files already on the device are the most likely hits.
 - Real-catalogue results for this playlist: **not yet obtained** (needs a run on the tablet with a Jamendo client ID).
+
+
+## Milestone 4–5 (this update)
+- **Download manager** (`collector/download/`): queue (2 at a time), pause/resume (keeps partial data), cancel (discards), retry with backoff (network/5xx only — 403/404/integrity are not retried), Wi-Fi-only, storage allowance + free-space check, duplicate detection (already downloaded / already in library / already queued), integrity (size + audio header), recovery after restart. Only a **confirmed match with verified download permission** can be queued, and only from the *Review downloads* sheet (nothing pre-selected). *Auto-download exact matches* exists but is **off by default**.
+- **Android storage**: `DownloaderPlugin` writes through MediaStore (scoped storage, no storage permission) to `Music/Swarify/<Artist>/<Album>/<Title>.<ext>` as a pending item, resumes with HTTP `Range`, validates the header, and runs under a `dataSync` foreground service. Android 10+ only.
+- **Library registration**: finished files are added to the local library (id `lo-ms-<MediaStore id>`, same as a device scan, so a later scan never duplicates them), the song is marked *downloaded* and linked via `local_file_id`.
+- **Automatic Swarify playlists**: every imported playlist is mirrored into the Library with its clean name, artwork, source tag and original order; downloaded songs play, the rest are greyed placeholders with the reason and are never queued. User-made playlists are never touched.
+- **Sync**: manual, per-playlist selection, optional Daily/Weekly (runs while Swarify is open), counts new / updated / removed-at-source; local files and downloads are never deleted.
+
+### Evidence (M4–M5)
+| Check | Level |
+|---|---|
+| 183 unit tests (manager: eligibility, lifecycle, retries, Wi-Fi, storage; mirror; sync) | Simulated |
+| Browser end-to-end vs a **real local HTTP server** with Range support: pause → resume sends `Range: bytes=…`; bad file rejected; library + playlist registration | Real HTTP, browser storage (not Android) |
+| Android plugin: compiled in CI; emulator test (MediaStore path, SHA-256, Range resume, integrity, cancel, native playback of the file) | Emulator — see report |
+| Downloads on the physical tablet | **NOT tested** |
