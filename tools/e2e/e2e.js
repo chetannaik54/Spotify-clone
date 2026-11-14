@@ -1,6 +1,6 @@
 // Emulator end-to-end test for Swarify. AUTOMATED / EMULATED — not a physical device.
 // Drives the real debug APK: UI via WebView DevTools, system behaviour via adb (media keys, lock, swipe, reboot).
-const { chromium } = require('playwright-core');
+const { connectPage } = require('./cdp');
 const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const PKG = 'com.personal.swarify';
@@ -31,10 +31,7 @@ async function connect() {
   const sock = await waitFor(() => (adb('shell cat /proc/net/unix').match(/webview_devtools_remote_\d+/) || [])[0], 30000);
   if (!sock) throw new Error('no WebView devtools socket (is the APK debuggable?)');
   adb(`forward tcp:9222 localabstract:${sock}`);
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-  const page = browser.contexts()[0].pages()[0];
-  await page.waitForLoadState('domcontentloaded'); await sleep(1500);
-  return { browser, page };
+  const ui = await connectPage(9222); await sleep(1500); return ui;
 }
 
 (async () => {
@@ -49,25 +46,24 @@ async function connect() {
   adb(`shell pm grant ${PKG} android.permission.POST_NOTIFICATIONS`);
   adb('shell input keyevent KEYCODE_WAKEUP'); adb('shell wm dismiss-keyguard');
   adb(`shell am start -n ${PKG}/.MainActivity`);
-  let { browser, page } = await connect();
-  const errors = []; page.on('pageerror', e => errors.push(String(e)));
+  let ui = await connect();
   shot('01-launch');
-  pass('APK installs and launches; WebView loads', await page.locator('.logo').count() > 0);
+  pass('APK installs and launches; WebView loads', await ui.count('.logo') > 0);
 
   // ---- 1. native scan via the real UI ----
-  await page.locator('.side button', { hasText: 'Library' }).click();
-  await page.locator('.chip', { hasText: 'My Music' }).click();
-  await page.locator('button', { hasText: 'Scan device for music' }).click();
-  const scanned = await waitFor(async () => (await page.locator('.scan-msg').textContent().catch(() => '')).match(/Found (\d+)/), 20000);
+  await ui.click('.side button', 'Library');
+  await ui.click('.chip', 'My Music');
+  await ui.click('button', 'Scan device for music');
+  const scanned = await waitFor(async () => (await ui.text('.scan-msg')).match(/Found (\d+)/), 20000);
   const count = scanned ? +scanned[1] : 0;
-  const rows = await page.locator('.row').count();
+  const rows = await ui.count('.row');
   pass('device scan finds music across folders (Music/, Download/, Music/Retro)', count >= 3 && rows >= 3, `found ${count}, rows ${rows}`);
-  const folderChips = await page.locator('.chip', { hasText: '/' }).allTextContents().catch(() => []);
+  const folderChips = await ui.texts('.chip', '/');
   pass('scan groups songs by folder (folder filter chips)', folderChips.length >= 3, folderChips.join(' | '));
   shot('02-scanned');
 
   // ---- 2. play a scanned song through the native service ----
-  await page.locator('.row', { hasText: 'Tum Hi Ho' }).first().click();
+  await ui.click('.row', 'Tum Hi Ho');
   const playing = await waitFor(() => { const s = session(); return s.found && s.state === 3 ? s : null; }, 25000);
   pass('native MediaSession exists and is PLAYING', !!playing, playing ? playing.desc : JSON.stringify(session()).slice(0, 200));
   const svc = serviceInfo();
@@ -126,11 +122,11 @@ async function connect() {
   pass('  …position still advancing after swipe', session().position > p3, `${p3}→${session().position}`);
 
   // ---- 7. app recreation attaches to the still-running session ----
-  try { await browser.close(); } catch {}
+  ui.close();
   adb(`shell am start -n ${PKG}/.MainActivity`); await sleep(2500);
-  ({ browser, page } = await connect());
+  ui = await connect();
   await sleep(2500); shot('05-reopened');
-  const miniTitle = await page.locator('.mini-bar .meta b').textContent().catch(() => '');
+  const miniTitle = await ui.text('.mini-bar .meta b');
   const nowDesc = session().desc;
   pass('reopening app shows the running session (no restart / duplicate)', !!miniTitle && nowDesc.includes(miniTitle.trim()) && session().state === 3, `UI "${miniTitle}" / session "${nowDesc}"`);
   const sessions = (adb('shell dumpsys media_session').match(new RegExp(PKG + '.*\\(userId', 'g')) || []).length;
@@ -139,10 +135,10 @@ async function connect() {
   pass('exactly one PlaybackService instance', svcCount <= 1, `records=${svcCount}`);
 
   // ---- 8. UI state still works with native engine ----
-  await page.locator('.mini-bar .meta').click(); await sleep(800);
-  await page.locator('.np [aria-label="Shuffle"]').click(); await page.locator('.np [aria-label^="Repeat"]').click(); await sleep(800);
+  await ui.click('.mini-bar .meta'); await sleep(800);
+  await ui.click('.np [aria-label="Shuffle"]'); await ui.click('.np [aria-label^="Repeat"]'); await sleep(800);
   pass('shuffle/repeat toggles do not break playback', session().state === 3);
-  await page.locator('.np .pill', { hasText: 'EQ' }).click(); await page.locator('.eq .chip', { hasText: 'Bass Boost' }).click(); await sleep(1200);
+  await ui.click('.np .pill', 'EQ'); await ui.click('.eq .chip', 'Bass Boost'); await sleep(1200);
   const audioFx = adb('shell dumpsys media.audio_flinger').includes('Equalizer') || adb('shell dumpsys media.audio_policy').length > 0;
   pass('equalizer applied natively without interrupting playback', session().state === 3, 'effect chain present: ' + audioFx);
   shot('06-nowplaying');
@@ -158,7 +154,7 @@ async function connect() {
   if (rb.found && rb.state === 3) pass('after device restart, media PLAY button restores the saved queue and plays', true, `${rb.desc} (was "${lastDesc}")`);
   else rec('device restart recovery', 'INCONCLUSIVE', `session found=${rb.found} state=${NAMES[rb.state]} — emulator may not persist the media-button session across reboot; verify on the tablet`);
 
-  pass('no uncaught page errors in the UI', errors.length === 0, errors.join(' | '));
+  pass('no uncaught page errors in the UI', ui.errors.length === 0, ui.errors.join(' | '));
   fs.writeFileSync('e2e-results.json', JSON.stringify(results, null, 2));
   const bad = results.filter(r => r.status === 'FAIL');
   console.log(`\n${results.filter(r => r.status === 'PASS').length} PASS, ${bad.length} FAIL, ${results.filter(r => r.status === 'INCONCLUSIVE').length} INCONCLUSIVE`);

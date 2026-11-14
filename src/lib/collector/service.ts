@@ -30,7 +30,8 @@ export const hasConsent = (p: Platform) => { try { return localStorage.getItem(c
 export const giveConsent = (p: Platform) => { try { localStorage.setItem(consentKey(p), '1'); } catch { /* ignore */ } };
 
 export async function refreshConnection() {
-  const c = await spotifyAuth.isConnected();
+  let c = false;
+  try { c = await spotifyAuth.isConnected(); } catch (e) { console.warn('secure storage unavailable', e); }
   setUi(u => ({ ...u, connected: { ...u.connected, spotify: c } }));
 }
 
@@ -78,7 +79,7 @@ export async function disconnectSpotify(purge: boolean) {
 /** Wire deep links (Android) / page-load redirect (web). Call once at startup. */
 export function initCollector() {
   refreshConnection();
-  if (isNativeApp) App.addListener('appUrlOpen', ({ url }) => { if (url.startsWith('com.personal.swarify://auth/spotify')) handleCallback(url); });
+  if (isNativeApp) App.addListener('appUrlOpen', ({ url }) => { if (url.startsWith('com.personal.swarify://auth/spotify')) handleCallback(url); }).catch(e => console.warn('deep-link listener failed', e));
   else if (/[?&](code|error)=/.test(location.search) && /[?&]state=/.test(location.search)) { handleCallback(location.href).then(() => history.replaceState({}, '', location.pathname)); }
 }
 
