@@ -172,7 +172,8 @@ async function connect() {
   // ---- 8b. authorised-download worker (native Downloader plugin) against a real local HTTP server ----
   const API = 'window.Capacitor.Plugins.Downloader';
   const call = async (expr) => ui.eval(`(async () => { try { const r = await (${expr}); return { ok: true, r }; } catch (e) { return { ok: false, code: e.code || '', msg: String(e.message || e) }; } })()`);
-  const q = (where) => adb(`shell content query --uri content://media/external/audio/media --projection _id:_display_name:relative_path:is_pending:_size --where "${where}"`);
+  // list all Swarify rows and filter in node (avoids adb/shell quoting of --where); title is matched against _display_name
+  const q = (where) => { const name = (where.match(/'([^']+)'/) || [])[1] || ''; return adb('shell content query --uri content://media/external/audio/media --projection _id:_display_name:relative_path:is_pending:_size').split(/\r?\n/).filter(l => l.includes('_display_name=' + name)).join('\n'); };
   const expectSize = +fs.readFileSync('/tmp/e2e-song.size', 'utf8'); const expectSha = fs.readFileSync('/tmp/e2e-song.sha256', 'utf8').trim();
   const dlOpts = (id, path, title) => `{ id: ${JSON.stringify(id)}, url: 'http://10.0.2.2:8765/${path}', title: ${JSON.stringify(title)}, artist: 'E2EArtist', album: 'E2EAlbum', ext: 'wav', wifiOnly: false }`;
   const st = await call(`${API}.storage()`); pass('downloader reports free device storage', st.ok && st.r.freeBytes > 100 * 1024 * 1024, st.ok ? `${Math.round(st.r.freeBytes / 1048576)} MB free` : st.msg);
@@ -180,20 +181,22 @@ async function connect() {
   pass('download completes through the Android plugin', full.ok && full.r.size === expectSize, full.ok ? `${full.r.size} bytes → ${full.r.folder}` : `${full.code} ${full.msg}`);
   if (full.ok) {
     const row = q("title='E2ESong'");
+    console.log('  MediaStore row:', JSON.stringify(row)); console.log('  ls:', JSON.stringify(adb('shell ls "/sdcard/Music/Swarify/E2EArtist/E2EAlbum/"')));
     pass('file is in MediaStore under Music/Swarify/<Artist>/<Album>/ and not pending', /relative_path=Music\/Swarify\/E2EArtist\/E2EAlbum\//.test(row) && /is_pending=0/.test(row), row.replace(/\s+/g, ' ').slice(0, 200));
-    pass('file is visible on disk in Android storage', /E2E Song\.wav/.test(adb('shell ls "/sdcard/Music/Swarify/E2EArtist/E2EAlbum/"')));
+    pass('file is visible on disk in Android storage', /E2ESong\.wav/.test(adb('shell ls "/sdcard/Music/Swarify/E2EArtist/E2EAlbum/"')));
     adb(`pull "/sdcard/Music/Swarify/E2EArtist/E2EAlbum/E2ESong.wav" /tmp/e2e-pulled.wav`); const got = require('crypto').createHash('sha256').update(fs.readFileSync('/tmp/e2e-pulled.wav')).digest('hex');
     pass('downloaded bytes are identical to the server file (SHA-256)', got === expectSha);
     // playback of the downloaded file through the native player service
     await call(`window.Capacitor.Plugins.NativePlayer.setQueue({ tracks: [{ id: 'dl1', title: 'E2ESong', artist: 'E2EArtist', album: 'E2EAlbum', art: '', url: ${JSON.stringify(full.r.uri)} }], index: 0, position: 0, play: true, keepCurrent: false })`);
-    const pl = await waitFor(() => { const x = session(); return x.found && x.state === 3 && /E2E Song/.test(x.desc) ? x : null; }, 15000);
+    const pl = await waitFor(() => { const x = session(); return x.found && x.state === 3 && /E2ESong/.test(x.desc) ? x : null; }, 15000);
     pass('the downloaded file plays through the native player', !!pl, pl ? pl.desc : 'no PLAYING session');
     await call(`window.Capacitor.Plugins.NativePlayer.pause()`);
   }
   // pause (keep partial) → resume with an HTTP Range request
   const pendingResume = ui.eval(`(async () => { try { await ${API}.download(${dlOpts('e2e2', 'song.wav', 'E2EResume')}); return 'done'; } catch (e) { return 'err:' + (e.code || e.message); } })()`);
   await sleep(1800); await call(`${API}.cancel({ id: 'e2e2', keepPartial: true })`); const r1 = await pendingResume;
-  const pend = q("title='E2EResume'"); pass('pause keeps a partial (pending) file', r1 === 'err:CANCELLED' && /is_pending=1/.test(pend), `${r1} ${pend.replace(/\s+/g, ' ').slice(0, 120)}`);
+  const pend = q("title='E2EResume'"); const lsPend = adb('shell ls -a "/sdcard/Music/Swarify/E2EArtist/E2EAlbum/"');   // other apps/shell cannot see pending rows; Android names them .pending-<ts>-<name>
+   pass('pause keeps a partial (pending) file', r1 === 'err:CANCELLED' && (/is_pending=1/.test(pend) || /\.pending-.*E2EResume/.test(lsPend)), `${r1} | mediastore: ${pend.replace(/\s+/g, ' ').slice(0, 100)} | ls -a: ${lsPend.replace(/\s+/g, ' ').slice(0, 160)}`);
   const res2 = await call(`${API}.download(${dlOpts('e2e2', 'song.wav', 'E2EResume')})`);
   const logTxt = fs.existsSync('/tmp/dl-server.log') ? fs.readFileSync('/tmp/dl-server.log', 'utf8') : '';
   pass('resume continues with an HTTP Range request (no restart) and completes', res2.ok && res2.r.size === expectSize && /range=bytes=[1-9]\d{3,}-/.test(logTxt), `${res2.ok ? res2.r.size : res2.msg} | ${(logTxt.match(/range=bytes=\d+-/g) || []).join(',')}`);
@@ -206,7 +209,7 @@ async function connect() {
   pass('app is still alive after instantly-failing downloads (no foreground-service crash)', pid() === pidBefore404 && pidBefore404 !== '', `pid ${pidBefore404} → ${pid()}`);
   const pendingCancel = ui.eval(`(async () => { try { await ${API}.download(${dlOpts('e2e5', 'song.wav', 'E2ECancelled')}); return 'done'; } catch (e) { return 'err:' + (e.code || e.message); } })()`);
   await sleep(1500); await call(`${API}.cancel({ id: 'e2e5', keepPartial: false })`); const r3 = await pendingCancel;
-  pass('cancel discards the partial file', r3 === 'err:CANCELLED' && !/E2ECancelled/.test(q("title='E2ECancelled'")), r3);
+  pass('cancel discards the partial file', r3 === 'err:CANCELLED' && !/E2ECancelled/.test(q("title='E2ECancelled'")) && /E2ESong/.test(q("title='E2ESong'")), r3);
 
   // ---- 9. reboot recovery ----
   adb('shell input keyevent KEYCODE_MEDIA_PAUSE'); await sleep(1500);
