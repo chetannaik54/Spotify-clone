@@ -304,3 +304,4 @@ a.chip{text-decoration:none;color:inherit}
 .mem-form{display:flex;flex-direction:column;gap:10px}.mem-form input,.mem-form textarea,.mem-form select{padding:12px 14px;border-radius:12px;background:#0006;border:1px solid var(--line);color:#fff;font-size:15px;width:100%;font-family:inherit}.mem-form select option{color:#000}
 .filebtn{cursor:pointer}.mem-draft{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.mem-photo{width:110px;height:110px;object-fit:cover;border-radius:12px}.mem-voice{max-width:100%;height:36px}
 .mem p{margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.selmini{margin-left:10px;padding:6px 10px;border-radius:8px;background:#0006;border:1px solid var(--line);color:#fff}.selmini option{color:#000}

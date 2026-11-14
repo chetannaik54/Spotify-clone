@@ -49,7 +49,7 @@ export type ImportedPlaylist = {
 
 export type SyncRecord = {
   id: string; platform: Platform; started_at: number; finished_at: number;
-  ok: boolean; playlists: number; tracks_added: number; tracks_updated: number; errors: string[];
+  ok: boolean; playlists: number; tracks_added: number; tracks_updated: number; tracks_removed?: number; errors: string[];
 };
 
 export type AccountMeta = { platform: Platform; user_id: string; display_name: string; connected_at: number; last_synced_at: number | null };

@@ -9,6 +9,7 @@ import { YouTubeClient } from './youtube/client';
 import { httpFetch } from '../http';
 import { getState, set as setStore } from '../store';
 import { buildMirror, mergeMirror } from './mirror';
+import { isSyncDue } from './sched';
 import { DownloadManager } from './download/manager';
 import { NativeTransport, hasNativeDownloader } from './download/native';
 import { WebTransport } from './download/web';
@@ -142,7 +143,7 @@ export async function disconnectSpotify(purge: boolean) {
 export function initCollector() {
   refreshConnection();
   catalogue.subscribe(mirrorNow); mirrorNow();
-  downloads.recover().catch(() => {}); setInterval(() => downloads.tick().catch(() => {}), 15000); addEventListener('online', () => downloads.tick().catch(() => {}));
+  downloads.recover().catch(() => {}); setTimeout(() => maybeScheduledSync().catch(() => {}), 4000); setInterval(() => maybeScheduledSync().catch(() => {}), 3600_000); setInterval(() => downloads.tick().catch(() => {}), 15000); addEventListener('online', () => downloads.tick().catch(() => {}));
   if (isNativeApp) App.addListener('appUrlOpen', ({ url }) => { if (url.startsWith('com.personal.swarify://auth/spotify')) handleCallback(url); }).catch(e => console.warn('deep-link listener failed', e));
   else if (/[?&](code|error)=/.test(location.search) && /[?&]state=/.test(location.search)) { handleCallback(location.href).then(() => history.replaceState({}, '', location.pathname)); }
 }
@@ -221,3 +222,13 @@ export function mirrorNow() {
   }, 250);
 }
 export const setReview = (open: boolean) => setUi(u => ({ ...u, review: open }));
+
+/** Automatic incremental sync of the playlists the user selected. Runs while Swarify is open (no background job is registered). */
+export async function maybeScheduledSync() {
+  const every = getState().syncEvery; if (every === 'off' || navigator.onLine === false) return;
+  for (const [platform, run] of [['spotify', runSpotifyImport], ['youtube', runYouTubeImport]] as const) {
+    if (!(await (platform === 'spotify' ? spotifyAuth : googleAuth).isConnected().catch(() => false))) continue;
+    const acc = await catalogue.account(platform); if (!isSyncDue(every, acc?.last_synced_at)) continue;
+    await run({ onlySelected: true });
+  }
+}

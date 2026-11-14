@@ -51,7 +51,9 @@ export class Catalogue {
       entries.push({ track_id: id, position: i, added_at: t.added_at ?? null });
     }
     // entries that left the source playlist are kept (flagged) — local files and history are never deleted automatically
-    const removed = (prev?.entries ?? []).filter(e => !seen.has(e.track_id)).map(e => ({ ...e, removed_at: e.removed_at ?? now }));
+    const gone = (prev?.entries ?? []).filter(e => !seen.has(e.track_id));
+    const newlyRemoved = gone.filter(e => !e.removed_at).length;
+    const removed = gone.map(e => ({ ...e, removed_at: e.removed_at ?? now }));
     const playlist: ImportedPlaylist = {
       id: pid, user_id: userId, source_platform: platform, source_playlist_id: pl.source_playlist_id, kind: pl.kind, name: pl.name,
       artwork_url: pl.artwork_url, owner: pl.owner, total: pl.total, entries: [...entries, ...removed], snapshot_id: pl.snapshot_id,
@@ -59,7 +61,7 @@ export class Catalogue {
     };
     await this.s.playlists.put(pid, playlist);
     this.emit();
-    return { playlist, added, updated };
+    return { playlist, added, updated, removed: newlyRemoved };
   }
 
   async noteFailure(platform: Platform, userId: string, pl: IncomingPlaylist, error: string, now = Date.now()) {

@@ -49,7 +49,7 @@ export async function importSpotify(client: SpotifyClient, cat: Catalogue, opts:
       try {
         const items = await client.playlistItems(pl.source_playlist_id);
         const r = await cat.importPlaylist('spotify', me.id, pl, items, now());
-        rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.playlists++;
+        rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.tracks_removed = (rec.tracks_removed ?? 0) + r.removed; rec.playlists++;
       } catch (e) {
         if (e instanceof ReauthRequired) throw e;
         const msg = friendly(e); rec.errors.push(`${pl.name}: ${msg}`); await cat.noteFailure('spotify', me.id, pl, msg, now());
@@ -61,7 +61,7 @@ export async function importSpotify(client: SpotifyClient, cat: Catalogue, opts:
       try {
         const items = await client.savedTracks();
         const r = await cat.importPlaylist('spotify', me.id, { source_playlist_id: 'liked', kind: 'liked', name: 'Liked Songs', artwork_url: '', owner: me.display_name || me.id, total: items.length, snapshot_id: null }, items, now());
-        rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.playlists++;
+        rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.tracks_removed = (rec.tracks_removed ?? 0) + r.removed; rec.playlists++;
       } catch (e) { if (e instanceof ReauthRequired) throw e; rec.errors.push(`Liked Songs: ${friendly(e)}`); }
       done++;
     }
@@ -110,13 +110,13 @@ export async function importYouTube(client: YouTubeClient, cat: Catalogue, opts:
     const total = lists.length + (wantLiked ? 1 : 0); let done = 0;
     for (const pl of lists) {
       opts.onProgress?.(`Importing “${pl.name}”`, done, total);
-      try { const items = await client.playlistItems(pl.source_playlist_id); const r = await cat.importPlaylist('youtube', me.id, pl, items, now()); rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.playlists++; }
+      try { const items = await client.playlistItems(pl.source_playlist_id); const r = await cat.importPlaylist('youtube', me.id, pl, items, now()); rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.tracks_removed = (rec.tracks_removed ?? 0) + r.removed; rec.playlists++; }
       catch (e) { if (e instanceof GoogleReauthRequired) throw e; const msg = friendlyYt(e); rec.errors.push(`${pl.name}: ${msg}`); await cat.noteFailure('youtube', me.id, pl, msg, now()); }
       done++;
     }
     if (wantLiked) {
       opts.onProgress?.('Importing liked videos', done, total);
-      try { const items = await client.likedVideos(); const r = await cat.importPlaylist('youtube', me.id, { source_playlist_id: 'liked', kind: 'liked', name: 'Liked videos', artwork_url: '', owner: me.display_name, total: items.length, snapshot_id: null }, items, now()); rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.playlists++; }
+      try { const items = await client.likedVideos(); const r = await cat.importPlaylist('youtube', me.id, { source_playlist_id: 'liked', kind: 'liked', name: 'Liked videos', artwork_url: '', owner: me.display_name, total: items.length, snapshot_id: null }, items, now()); rec.tracks_added += r.added; rec.tracks_updated += r.updated; rec.tracks_removed = (rec.tracks_removed ?? 0) + r.removed; rec.playlists++; }
       catch (e) { if (e instanceof GoogleReauthRequired) throw e; rec.errors.push(`Liked videos: ${friendlyYt(e)}`); }
       done++;
     }

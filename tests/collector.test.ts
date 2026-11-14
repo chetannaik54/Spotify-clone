@@ -136,3 +136,23 @@ describe('sync bookkeeping & disconnect', () => {
     await cat.removeAccount('spotify', true); expect((await cat.tracks()).map(x => x.id)).toEqual(['spotify:t0']); expect((await cat.playlists()).length).toBe(0);
   });
 });
+
+import { isSyncDue } from '../src/lib/collector/sched';
+describe('incremental / scheduled sync', () => {
+  it('schedule is due only when enabled and the interval has elapsed (or never synced)', () => {
+    const now = 10 * 24 * 3600_000; expect(isSyncDue('off', 0, now)).toBe(false); expect(isSyncDue('daily', null, now)).toBe(true); expect(isSyncDue('daily', now - 23 * 3600_000, now)).toBe(false); expect(isSyncDue('daily', now - 25 * 3600_000, now)).toBe(true);
+    expect(isSyncDue('weekly', now - 6 * 24 * 3600_000, now)).toBe(false); expect(isSyncDue('weekly', now - 8 * 24 * 3600_000, now)).toBe(true);
+  });
+  it('a sync reports new / updated / removed-at-source songs; removed ones are flagged, never deleted, and counted once', async () => {
+    api.playlists = [{ id: 'p', name: 'P', tracks: makeTracks(5) }]; await importSpotify(client, cat, { liked: false, now: () => now });
+    api.playlists[0].tracks = [...makeTracks(5).slice(0, 3), ...makeTracks(2, 'n')]; now += 1000;
+    const r2 = await importSpotify(client, cat, { liked: false, now: () => now }); expect(r2).toMatchObject({ tracks_added: 2, tracks_removed: 2 });
+    expect((await cat.tracks()).length).toBe(7); expect((await cat.playlistTracks('spotify:p')).map(t => t.source_track_id)).toEqual(['t0', 't1', 't2', 'n0', 'n1']);
+    now += 1000; const r3 = await importSpotify(client, cat, { liked: false, now: () => now }); expect(r3.tracks_removed).toBe(0);      // already flagged: not recounted
+  });
+  it('a downloaded song keeps its local file when it disappears from the source playlist', async () => {
+    api.playlists = [{ id: 'p', name: 'P', tracks: makeTracks(2) }]; await importSpotify(client, cat, { liked: false });
+    await cat.markDownloaded('spotify:t1', 'lo-ms-7'); api.playlists[0].tracks = makeTracks(2).slice(0, 1); await importSpotify(client, cat, { liked: false });
+    expect(await cat.s.tracks.get('spotify:t1')).toMatchObject({ matching_status: 'downloaded', local_file_id: 'lo-ms-7' });
+  });
+});

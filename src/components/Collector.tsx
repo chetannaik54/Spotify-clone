@@ -10,6 +10,7 @@ import Matching from './Matching';
 import Downloads from './Downloads';
 import { displayName } from '../lib/collector/playlistNames';
 import Icon from './Icon';
+import { set, useStore } from '../lib/store';
 
 const when = (t?: number | null) => (t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Never');
 const PLATFORM: Record<string, string> = { spotify: 'Spotify', youtube: 'YouTube', csv: 'CSV' };
@@ -20,7 +21,7 @@ export default function Collector() {
   const likedLists = data.playlists.filter(p => p.kind === 'liked');
   const rev = useMemo(() => data.tracks.reduce((m, t) => Math.max(m, t.updated_at), 0), [data.tracks]);   // bumps whenever any song changes
   const lists = data.playlists.filter(p => p.kind === 'playlist');
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null); const sync = useStore(s => s.syncEvery);
   return (
     <div className="view">
       <header className="hero"><h1>Playlist Collector</h1><p>Bring your playlists from Spotify and YouTube into one library. Only song details are imported — never audio.</p></header>
@@ -31,6 +32,9 @@ export default function Collector() {
         <YouTubeCard acc={data.accounts.youtube} connected={!!ui.connected.youtube} busy={ui.busy.youtube} msg={ui.msg.youtube} reauth={!!ui.needsReauth.youtube} device={ui.device.youtube} />
         <CsvCard msg={ui.msg.csv} />
       </div>
+
+      <section className="panel"><b>Automatic sync</b> <select className="selmini" value={sync} onChange={e => set({ syncEvery: e.target.value as 'off' | 'daily' | 'weekly' })}><option value="off">Off</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+        <p className="empty">Re-reads the playlists you left ticked “Sync”, adds new songs, and flags songs removed at the source. Existing downloads and local files are never deleted. Runs while Swarify is open.</p></section>
 
       <h2>Imported playlists <small className="count">{lists.length}</small></h2>
       {!lists.length && <p className="empty">No playlists imported yet. Connect Spotify above and choose “Import playlists”.</p>}
@@ -45,7 +49,7 @@ export default function Collector() {
       <h2>Sync history</h2>
       {!data.syncs.length ? <p className="empty">No syncs yet.</p> : <div className="list">{data.syncs.slice(0, 10).map(s => (
         <div className="row static" key={s.id}><span className={`dot ${s.ok ? 'ok' : 'bad'}`} /><div className="meta"><b>{PLATFORM[s.platform]} · {s.ok ? 'completed' : 'failed'}</b>
-          <span>{when(s.started_at)} · {s.playlists} lists · {s.tracks_added} new · {s.tracks_updated} updated</span>
+          <span>{when(s.started_at)} · {s.playlists} lists · {s.tracks_added} new · {s.tracks_updated} updated{s.tracks_removed ? ` · ${s.tracks_removed} removed at source` : ''}</span>
           {s.errors.slice(0, 3).map((e, i) => <span key={i} className="err">{e}</span>)}</div></div>))}</div>}
     </div>
   );
