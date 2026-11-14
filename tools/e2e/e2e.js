@@ -8,7 +8,11 @@ const LOCK_SECONDS = +(process.env.LOCK_SECONDS || 90);
 const sh = (c, o = {}) => { try { return execSync(c, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...o }).trim(); } catch (e) { return (e.stdout || '') + (e.stderr || ''); } };
 const adb = c => sh('adb ' + c);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const results = [];
+const results = []; let finished = false;
+console.log('E2E starting (emulated, not a physical device)');
+// Never let the process end quietly: a silent exit must fail the job.
+process.on('exit', code => { if (!finished) { console.error(`E2E EXITED BEFORE COMPLETING (code ${code}, ${results.length} results)`); process.exitCode = 3; } });
+process.on('unhandledRejection', e => { console.error('E2E unhandled rejection:', e); process.exit(4); });
 function rec(name, status, detail = '') { results.push({ name, status, detail }); console.log(`${status.padEnd(12)} ${name}${detail ? '  — ' + detail : ''}`); }
 const pass = (n, ok, d) => rec(n, ok ? 'PASS' : 'FAIL', d);
 fs.mkdirSync('shots', { recursive: true });
@@ -177,7 +181,8 @@ async function connect() {
 
   pass('no uncaught page errors in the UI', ui.errors.length === 0, ui.errors.join(' | '));
   fs.writeFileSync('e2e-results.json', JSON.stringify(results, null, 2));
+  finished = true;
   const bad = results.filter(r => r.status === 'FAIL');
   console.log(`\n${results.filter(r => r.status === 'PASS').length} PASS, ${bad.length} FAIL, ${results.filter(r => r.status === 'INCONCLUSIVE').length} INCONCLUSIVE`);
   process.exit(bad.length ? 1 : 0);
-})().catch(e => { console.error('E2E crashed:', e); fs.writeFileSync('e2e-results.json', JSON.stringify(results, null, 2)); process.exit(2); });
+})().catch(e => { finished = true; console.error('E2E crashed:', e); fs.writeFileSync('e2e-results.json', JSON.stringify(results, null, 2)); process.exit(2); });

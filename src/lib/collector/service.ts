@@ -7,6 +7,13 @@ import { friendly, friendlyYt, importCsvFiles, importSpotify, importYouTube } fr
 import { GoogleAuth, GoogleReauthRequired, YT_SCOPE, type DeviceCode } from './google/auth';
 import { YouTubeClient } from './youtube/client';
 import { httpFetch } from '../http';
+import { getState, set as setStore } from '../store';
+import { confirmMatch, matchMany, rejectMatch, skipTrack, type RunProgress } from './match/engine';
+import { ArchiveSource } from './match/sources/archive';
+import { JamendoSource } from './match/sources/jamendo';
+import { LocalSource } from './match/sources/local';
+import { SoundCloudSource } from './match/sources/soundcloud';
+import type { MatchRecord, MatchSource } from './match/types';
 import { secureStore } from './secure';
 import { ReauthRequired, SpotifyAuth } from './spotify/auth';
 import { SpotifyClient } from './spotify/client';
@@ -23,8 +30,8 @@ const youtubeClient = new YouTubeClient({ fetch: (...a) => httpFetch(...a), auth
 void YT_SCOPE;
 
 // ---- transient UI state (busy / messages) ----
-type Ui = { device: Partial<Record<Platform, { code: string; url: string; expiresAt: number }>>; busy: Partial<Record<Platform, string>>; msg: Partial<Record<Platform, { kind: 'ok' | 'err'; text: string }>>; needsReauth: Partial<Record<Platform, boolean>>; connected: Partial<Record<Platform, boolean>> };
-let ui: Ui = { device: {}, busy: {}, msg: {}, needsReauth: {}, connected: {} };
+type Ui = { match: { running: boolean; progress: RunProgress | null; note: string }; device: Partial<Record<Platform, { code: string; url: string; expiresAt: number }>>; busy: Partial<Record<Platform, string>>; msg: Partial<Record<Platform, { kind: 'ok' | 'err'; text: string }>>; needsReauth: Partial<Record<Platform, boolean>>; connected: Partial<Record<Platform, boolean>> };
+let ui: Ui = { match: { running: false, progress: null, note: '' }, device: {}, busy: {}, msg: {}, needsReauth: {}, connected: {} };
 const subs = new Set<() => void>();
 const setUi = (f: (u: Ui) => Ui) => { ui = f(ui); subs.forEach(s => s()); };
 export const useCollectorUi = () => useSyncExternalStore(cb => { subs.add(cb); return () => subs.delete(cb); }, () => ui);
@@ -133,14 +140,48 @@ export function initCollector() {
 }
 
 // ---- data hook ----
-export type CollectorData = { accounts: Partial<Record<Platform, AccountMeta | undefined>>; playlists: ImportedPlaylist[]; tracks: ImportedTrack[]; syncs: SyncRecord[] };
+export type CollectorData = { matches: MatchRecord[]; accounts: Partial<Record<Platform, AccountMeta | undefined>>; playlists: ImportedPlaylist[]; tracks: ImportedTrack[]; syncs: SyncRecord[] };
 export function useCollectorData(): CollectorData {
-  const [d, setD] = useState<CollectorData>({ accounts: {}, playlists: [], tracks: [], syncs: [] });
+  const [d, setD] = useState<CollectorData>({ matches: [], accounts: {}, playlists: [], tracks: [], syncs: [] });
   useEffect(() => {
     let live = true;
-    const load = async () => { const [sp, yt, playlists, tracks, syncs] = await Promise.all([catalogue.account('spotify'), catalogue.account('youtube'), catalogue.playlists(), catalogue.tracks(), catalogue.syncs()]); if (live) setD({ accounts: { spotify: sp, youtube: yt }, playlists, tracks, syncs }); };
+    const load = async () => { const [sp, yt, playlists, tracks, syncs, matches] = await Promise.all([catalogue.account('spotify'), catalogue.account('youtube'), catalogue.playlists(), catalogue.tracks(), catalogue.syncs(), catalogue.matches()]); if (live) setD({ accounts: { spotify: sp, youtube: yt }, playlists, tracks, syncs, matches }); };
     load(); const off = catalogue.subscribe(load);
     return () => { live = false; off(); };
   }, []);
   return d;
 }
+
+
+// ---------------- Matching (Milestone 3) ----------------
+export const hasMatchConsent = () => hasConsent('matching' as Platform);
+export const giveMatchConsent = () => giveConsent('matching' as Platform);
+let matchAbort: AbortController | null = null;
+
+/** Local files always; network catalogues only after the user's consent and only when enabled (and keyed where a key is needed). */
+export function buildSources(): MatchSource[] {
+  const st = getState(); const out: MatchSource[] = [new LocalSource({ tracks: () => getState().local })];
+  if (!hasMatchConsent()) return out;
+  if (st.matchSources.jamendo && st.jamendoId) out.push(new JamendoSource({ fetch: (...a) => httpFetch(...a), clientId: st.jamendoId }));
+  if (st.matchSources.archive) out.push(new ArchiveSource({ fetch: (...a) => httpFetch(...a) }));
+  if (st.matchSources.soundcloud && st.soundcloudId) out.push(new SoundCloudSource({ fetch: (...a) => httpFetch(...a), clientId: st.soundcloudId }));
+  return out;
+}
+const setMatchUi = (m: Partial<Ui['match']>) => setUi(u => ({ ...u, match: { ...u.match, ...m } }));
+
+export async function runMatching(filter: (t: ImportedTrack) => boolean = () => true, force = false) {
+  if (ui.match.running) return;
+  const sources = buildSources(); matchAbort = new AbortController();
+  setMatchUi({ running: true, progress: { done: 0, total: 0, current: '', failed: 0 }, note: sources.length === 1 ? 'Only your own device is searched until you allow online catalogues.' : '' });
+  try {
+    const tracks = (await catalogue.tracks()).filter(filter);
+    const r = await matchMany(catalogue, tracks, { sources, force, signal: matchAbort.signal, concurrency: 2, onProgress: p => setMatchUi({ progress: p }) });
+    setMatchUi({ note: `Checked ${r.done} songs${r.failed ? ` · ${r.failed} could not be searched (network) — use “Retry failed”` : ''}${matchAbort.signal.aborted ? ' · stopped' : ''}` });
+  } catch (e) { setMatchUi({ note: (e as Error).message }); }
+  finally { setMatchUi({ running: false }); }
+}
+export const stopMatching = () => matchAbort?.abort();
+export const retryFailedMatches = () => runMatching(t => t.matching_status === 'failed');
+export async function confirmSelectedMatches(trackIds: string[]) { for (const id of trackIds) { const r = await catalogue.getMatch(id); const best = r?.candidates[0]; if (best && !r?.selected) await confirmMatch(catalogue, id, best.key); } }
+export async function skipUnavailable() { for (const t of await catalogue.tracks()) if (t.import_status === 'imported' && (t.matching_status === 'no_match' || t.matching_status === 'failed')) await skipTrack(catalogue, t.id); }
+export { confirmMatch, rejectMatch, skipTrack };

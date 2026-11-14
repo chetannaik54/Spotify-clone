@@ -1,9 +1,10 @@
-import type { AccountMeta, ImportedPlaylist, ImportedTrack, Platform, SyncRecord } from './types';
+import type { AccountMeta, ImportedPlaylist, ImportedTrack, MatchingStatus, Platform, SyncRecord } from './types';
+import type { MatchRecord } from './match/types';
 import { IdbKV, MemoryKV, type KV } from './kv';
 
-export type Stores = { tracks: KV<ImportedTrack>; playlists: KV<ImportedPlaylist>; syncs: KV<SyncRecord>; accounts: KV<AccountMeta> };
-export const idbStores = (): Stores => ({ tracks: new IdbKV('c_tracks'), playlists: new IdbKV('c_playlists'), syncs: new IdbKV('c_syncs'), accounts: new IdbKV('c_accounts') });
-export const memoryStores = (): Stores => ({ tracks: new MemoryKV(), playlists: new MemoryKV(), syncs: new MemoryKV(), accounts: new MemoryKV() });
+export type Stores = { tracks: KV<ImportedTrack>; playlists: KV<ImportedPlaylist>; syncs: KV<SyncRecord>; accounts: KV<AccountMeta>; matches: KV<MatchRecord> };
+export const idbStores = (): Stores => ({ tracks: new IdbKV('c_tracks'), playlists: new IdbKV('c_playlists'), syncs: new IdbKV('c_syncs'), accounts: new IdbKV('c_accounts'), matches: new IdbKV('c_matches') });
+export const memoryStores = (): Stores => ({ tracks: new MemoryKV(), playlists: new MemoryKV(), syncs: new MemoryKV(), accounts: new MemoryKV(), matches: new MemoryKV() });
 
 export type IncomingTrack = Pick<ImportedTrack, 'source_track_id' | 'song_title' | 'artist_name' | 'album_name' | 'artwork_url' | 'duration_ms' | 'source_url' | 'import_status'> & { added_at?: string | null; platform?: Platform; channel?: string; music_confidence?: number };
 export type IncomingPlaylist = Pick<ImportedPlaylist, 'source_playlist_id' | 'kind' | 'name' | 'artwork_url' | 'owner' | 'total' | 'snapshot_id'>;
@@ -87,6 +88,16 @@ export class Catalogue {
   async setMusicOverride(trackId: string, isMusic: boolean) {
     const t = await this.s.tracks.get(trackId); if (!t) return;
     await this.s.tracks.put(trackId, { ...t, import_status: isMusic ? 'imported' : 'not_music', matching_status: isMusic ? 'pending_match' : 'unavailable', user_override: true, updated_at: Date.now() });
+    this.emit();
+  }
+  // ---- matching ----
+  async getMatch(trackId: string) { return this.s.matches.get(trackId); }
+  async matches() { return this.s.matches.all(); }
+  /** Store a match record and move the track to the status it implies (never downgrades a downloaded track). */
+  async putMatch(rec: MatchRecord, status: MatchingStatus, localFileId: string | null) {
+    await this.s.matches.put(rec.track_id, rec);
+    const t = await this.s.tracks.get(rec.track_id);
+    if (t && (t.matching_status !== 'downloaded' || status === 'downloaded')) await this.s.tracks.put(t.id, { ...t, matching_status: status, local_file_id: localFileId ?? t.local_file_id, updated_at: Date.now() });
     this.emit();
   }
   async addSync(r: SyncRecord) { await this.s.syncs.put(r.id, r); this.emit(); }

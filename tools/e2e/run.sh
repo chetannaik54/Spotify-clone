@@ -12,5 +12,10 @@ for name, f in [('Tum Hi Ho', 440), ('Kesariya', 523), ('Channa Mereya', 659)]:
 PY
 adb install -r -g ../../android/app/build/outputs/apk/debug/app-debug.apk
 npm install --no-audit --no-fund
+rm -f e2e-results.json
 node e2e.js 2>&1 | tee e2e.log
-exit "${PIPESTATUS[0]}"
+code="${PIPESTATUS[0]}"
+# A run that produced no results is a FAILURE, whatever node's exit code was.
+n=$(grep -cE "^(PASS|FAIL|INCONCLUSIVE)" e2e.log || true)
+if [ ! -s e2e-results.json ] || [ "$n" -lt 15 ]; then echo "E2E INVALID: expected at least 15 results, found $n"; exit 5; fi
+exit "$code"

@@ -134,7 +134,7 @@ export async function importCsvFiles(cat: Catalogue, files: { name: string; text
   for (const f of files) {
     const r = parseCsvPlaylist(f.name, f.text);
     if (r.error) { rec.errors.push(`${f.name}: ${r.error}`); continue; }
-    const res = await cat.importPlaylist('csv', 'local', { source_playlist_id: `file-${r.playlistName.toLowerCase()}`, kind: 'playlist', name: r.playlistName, artwork_url: '', owner: 'CSV file', total: r.items.length, snapshot_id: null }, r.items, now());
+    const res = await cat.importPlaylist('csv', 'local', { source_playlist_id: `file-${r.playlistName.toLowerCase()}`, kind: 'playlist', name: r.playlistName, artwork_url: '', owner: '', total: r.items.length, snapshot_id: null }, r.items, now());
     rec.playlists++; rec.tracks_added += res.added; rec.tracks_updated += res.updated;
     if (r.skipped) rec.errors.push(`${f.name}: ${r.skipped} row(s) without a title were skipped`);
   }

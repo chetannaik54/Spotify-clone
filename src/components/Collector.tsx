@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core';
 import { SPOTIFY_SCOPES } from '../lib/collector/spotify/auth';
 import type { ImportedPlaylist, ImportedTrack, MatchingStatus } from '../lib/collector/types';
 import { Art, fmt } from './Bits';
+import Matching from './Matching';
 import Icon from './Icon';
 
 const when = (t?: number | null) => (t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Never');
@@ -36,7 +37,7 @@ export default function Collector() {
       <h2>Liked songs <small className="count">{likedLists.reduce((n, p) => n + p.entries.filter(e => !e.removed_at).length, 0)}</small></h2>
       {likedLists.length ? likedLists.map(l => <PlaylistRow key={l.id} p={l} rev={rev} open={open === l.id} onToggle={() => setOpen(open === l.id ? null : l.id)} />) : <p className="empty">Import your Spotify liked songs or YouTube liked videos to see them here.</p>}
 
-      <h2>Music matching</h2><StatusPanel tracks={data.tracks} note="Finding free, downloadable recordings in authorised catalogues arrives in the next milestone. Imported songs wait here as “Not matched yet”." />
+      <h2>Music matching</h2><Matching tracks={data.tracks} matches={data.matches} />
       <h2>Download manager</h2>
       <section className="panel"><p className="empty">Downloads are not enabled yet. When they are, only recordings whose source explicitly permits downloading will be offered, and nothing downloads without your approval.</p>
         <div className="scan"><button className="chip" disabled>Download all eligible</button></div></section>
@@ -120,16 +121,6 @@ function PlaylistRow({ p, open, onToggle, rev }: { p: ImportedPlaylist; open: bo
             : <><span className={`pill-s s-${t.matching_status}`}>{t.import_status === 'unavailable' ? 'Unavailable' : LABEL[t.matching_status]}</span>{t.source_platform === 'youtube' && t.import_status === 'imported' && (t.user_override ? <button className="chip mini-chip" onClick={() => catalogue.setMusicOverride(t.id, false)}>Undo</button> : (t.music_confidence ?? 1) < 0.75 && <button className="chip mini-chip" onClick={() => catalogue.setMusicOverride(t.id, false)}>Not a song</button>)}</>}<span className="dur">{t.duration_ms ? fmt(t.duration_ms / 1000) : ''}</span></div>))}
         {!tracks.length && <p className="empty">No songs.</p>}</div>}
     </div>
-  );
-}
-
-function StatusPanel({ tracks, note }: { tracks: ImportedTrack[]; note: string }) {
-  const counts = useMemo(() => { const c: Partial<Record<MatchingStatus, number>> = {}; tracks.forEach(t => { c[t.matching_status] = (c[t.matching_status] ?? 0) + 1; }); return c; }, [tracks]);
-  return (
-    <section className="panel"><div className="chips">
-      <span className="chip">Imported songs <small>{tracks.length}</small></span>
-      {(Object.keys(counts) as MatchingStatus[]).map(k => <span key={k} className="chip">{LABEL[k]} <small>{counts[k]}</small></span>)}</div>
-      <p className="empty">{note}</p><div className="scan"><button className="chip" disabled>Find all matches</button></div></section>
   );
 }
 

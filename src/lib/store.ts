@@ -5,12 +5,12 @@ import type { JourneyPlan } from './journey/types';
 type State = {
   queue: Track[]; index: number; playing: boolean; shuffle: boolean; repeat: 'off' | 'all' | 'one';
   liked: Track[]; playlists: Playlist[]; recent: Track[]; local: Track[];
-  journey: JourneyPlan | null; journeyVerified: { passed: boolean; at: number } | null; resume: { track: Track; pos: number; dur: number } | null; jamendoId: string; eq: number[]; crossfade: number; sleepAt: number | null; volume: number;
+  journey: JourneyPlan | null; journeyVerified: { passed: boolean; at: number } | null; resume: { track: Track; pos: number; dur: number } | null; jamendoId: string; soundcloudId: string; matchSources: { jamendo: boolean; archive: boolean; soundcloud: boolean }; eq: number[]; crossfade: number; sleepAt: number | null; volume: number;
 };
 const KEY = 'swarify-state-v1';
 const defaults: State = {
   queue: [], index: -1, playing: false, shuffle: false, repeat: 'off', liked: [], playlists: [], recent: [], local: [],
-  journey: null, journeyVerified: null, resume: null, jamendoId: '', eq: [0, 0, 0, 0, 0], crossfade: 0, sleepAt: null, volume: 1,
+  journey: null, journeyVerified: null, resume: null, jamendoId: '', soundcloudId: '', matchSources: { jamendo: true, archive: true, soundcloud: true }, eq: [0, 0, 0, 0, 0], crossfade: 0, sleepAt: null, volume: 1,
 };
 let state: State = (() => { try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}'), playing: false, sleepAt: null }; } catch { return defaults; } })();
 const subs = new Set<() => void>();
