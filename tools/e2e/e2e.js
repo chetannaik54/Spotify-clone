@@ -14,13 +14,27 @@ const pass = (n, ok, d) => rec(n, ok ? 'PASS' : 'FAIL', d);
 fs.mkdirSync('shots', { recursive: true });
 const shot = n => spawnSync('sh', ['-c', `adb exec-out screencap -p > shots/${n}.png`]);
 
-function session() {
+function sessionBlock() {
   const out = adb('shell dumpsys media_session');
-  const blocks = out.split(/\n(?=\s{4}\S.*\(userId=\d+\))/);
-  const b = blocks.find(x => x.includes(PKG)) || '';
-  const st = b.match(/state=PlaybackState \{state=(\d+), position=(-?\d+)/);
+  // Android renders each session as a block that mentions "package=<pkg>"; take text from there to the next session/section.
+  const i = out.indexOf(`package=${PKG}`);
+  if (i < 0) return { out, block: '' };
+  const start = out.lastIndexOf('\n', out.lastIndexOf('(userId=', i) >= 0 ? out.lastIndexOf('(userId=', i) : i);
+  const rest = out.slice(i);
+  const next = rest.slice(20).search(/\n {4}\S.*\(userId=\d+\)|\nAudio playback|\nSession listeners/);
+  return { out, block: out.slice(Math.max(0, start), i + (next > 0 ? next + 20 : 4000)) };
+}
+function session() {
+  const { out, block: b } = sessionBlock();
+  // state renders as "state=PlaybackState {state=3, position=..." (older) or "state=PLAYING(3), position=..." (newer)
+  const st = b.match(/state=(?:PlaybackState \{state=)?(?:[A-Z_]+\()?(\d+)\)?, position=(-?\d+)/);
   const md = b.match(/metadata:.*?description=([^\n]*)/);
-  return { found: !!b, state: st ? +st[1] : -1, position: st ? +st[2] : -1, desc: md ? md[1].trim() : '', raw: b };
+  return { found: !!b, state: st ? +st[1] : -1, position: st ? +st[2] : -1, desc: md ? md[1].trim() : '', raw: b, all: out };
+}
+function sessionCount() { return (sessionBlock().out.match(new RegExp(`package=${PKG.replace(/\./g, '\\.')}`, 'g')) || []).length; }
+function debugDump(tag) {
+  const { out, block } = sessionBlock();
+  console.log(`----- DEBUG ${tag}: media_session block for ${PKG} -----\n${block.slice(0, 1800) || '(no block; first lines mentioning pkg:)\n' + out.split('\n').filter(l => l.includes('swarify')).slice(0, 12).join('\n')}\n----- END DEBUG -----`);
 }
 const NAMES = { 3: 'PLAYING', 2: 'PAUSED', 1: 'STOPPED', 6: 'BUFFERING', 0: 'NONE', '-1': 'NO-SESSION' };
 async function waitFor(fn, ms = 20000, step = 500) { const t = Date.now(); while (Date.now() - t < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; }
@@ -65,11 +79,11 @@ async function connect() {
   // ---- 2. play a scanned song through the native service ----
   await ui.click('.row', 'Tum Hi Ho');
   const playing = await waitFor(() => { const s = session(); return s.found && s.state === 3 ? s : null; }, 25000);
+  if (!playing) debugDump('play');
   pass('native MediaSession exists and is PLAYING', !!playing, playing ? playing.desc : JSON.stringify(session()).slice(0, 200));
   const svc = serviceInfo();
   pass('PlaybackService is a foreground service (mediaPlayback)', /isForeground=true/.test(svc) && /foregroundServiceType=0x2/.test(svc.replace(/foregroundServiceType=(0x[0-9a-f]+)/i, (m, v) => 'foregroundServiceType=' + v.toLowerCase())) || /isForeground=true/.test(svc), (svc.match(/isForeground=\w+/) || ['n/a'])[0]);
   const pidBefore = pid();
-  pass('WebView <audio> not used (playback owned by service)', true, 'verified in simulated suite; here session package is the service');
 
   // ---- 3. background + screen lock ----
   adb('shell input keyevent KEYCODE_HOME'); await sleep(1500);
@@ -104,8 +118,9 @@ async function connect() {
   if (session().state !== 3) { adb('shell input keyevent KEYCODE_MEDIA_PLAY'); await sleep(1500); }
   const noisy = adb('shell am broadcast -a android.media.AUDIO_BECOMING_NOISY');
   await sleep(1500);
-  if (session().state === 3) rec('headphone unplug (becoming-noisy)', 'INCONCLUSIVE', 'protected broadcast cannot be sent from adb; ExoPlayer setHandleAudioBecomingNoisy(true) is configured — test with real headphones');
-  else pass('headphone unplug pauses', true);
+  const hs = session().state;
+  if (hs === 3) rec('headphone unplug (becoming-noisy)', 'INCONCLUSIVE', 'protected broadcast cannot be sent from adb; ExoPlayer setHandleAudioBecomingNoisy(true) is configured — test with real headphones');
+  else pass('headphone unplug pauses', hs === 2, NAMES[hs]);
   if (session().state !== 3) { adb('shell input keyevent KEYCODE_MEDIA_PLAY'); await sleep(1500); }
 
   // ---- 6. swipe app away from recents ----
@@ -129,18 +144,18 @@ async function connect() {
   const miniTitle = await ui.text('.mini-bar .meta b');
   const nowDesc = session().desc;
   pass('reopening app shows the running session (no restart / duplicate)', !!miniTitle && nowDesc.includes(miniTitle.trim()) && session().state === 3, `UI "${miniTitle}" / session "${nowDesc}"`);
-  const sessions = (adb('shell dumpsys media_session').match(new RegExp(PKG + '.*\\(userId', 'g')) || []).length;
+  const sessions = sessionCount();
   pass('exactly one MediaSession for Swarify (no duplicates)', sessions === 1, `sessions=${sessions}`);
-  const svcCount = (serviceInfo().match(/ServiceRecord\{/g) || []).length;
-  pass('exactly one PlaybackService instance', svcCount <= 1, `records=${svcCount}`);
+  const svcCount = serviceInfo().split('\n').filter(l => /ServiceRecord\{/.test(l) && /PlaybackService/.test(l)).length;
+  pass('exactly one PlaybackService instance', svcCount === 1, `records=${svcCount}`);
 
   // ---- 8. UI state still works with native engine ----
   await ui.click('.mini-bar .meta'); await sleep(800);
   await ui.click('.np [aria-label="Shuffle"]'); await ui.click('.np [aria-label^="Repeat"]'); await sleep(800);
   pass('shuffle/repeat toggles do not break playback', session().state === 3);
   await ui.click('.np .pill', 'EQ'); await ui.click('.eq .chip', 'Bass Boost'); await sleep(1200);
-  const audioFx = adb('shell dumpsys media.audio_flinger').includes('Equalizer') || adb('shell dumpsys media.audio_policy').length > 0;
-  pass('equalizer applied natively without interrupting playback', session().state === 3, 'effect chain present: ' + audioFx);
+  const fx = adb('shell dumpsys media.audio_flinger'); const eqPresent = /ce772f20-847d-11df-bb17-0002a5d5c51b|Equalizer/i.test(fx);
+  pass('equalizer effect is attached by the service and playback continues', session().state === 3 && eqPresent, `playing=${session().state === 3} equalizer-effect-in-audio_flinger=${eqPresent}`);
   shot('06-nowplaying');
 
   // ---- 9. reboot recovery ----
