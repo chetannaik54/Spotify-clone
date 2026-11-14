@@ -3,7 +3,7 @@ package com.personal.swarify;
 import android.content.SharedPreferences;
 
 import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKey;
+import androidx.security.crypto.MasterKeys;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -18,8 +18,8 @@ public class SecureStorePlugin extends Plugin {
 
     private synchronized SharedPreferences prefs() throws Exception {
         if (prefs == null) {
-            MasterKey key = new MasterKey.Builder(getContext()).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
-            prefs = EncryptedSharedPreferences.create(getContext(), "swarify_secure", key,
+            String alias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC);   // Android Keystore key
+            prefs = EncryptedSharedPreferences.create("swarify_secure", alias, getContext(),
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
         }
