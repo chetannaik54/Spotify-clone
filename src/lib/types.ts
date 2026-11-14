@@ -7,6 +7,8 @@ export type Track = {
   url: string;          // audio URL, or "local:<id>" for imported files
   duration?: number;    // seconds
   source: 'itunes' | 'jamendo' | 'archive' | 'local';
-  preview?: boolean;    // true = 30s preview only
+  preview?: boolean;
+  folder?: string;      // device folder for scanned local files    // true = 30s preview only
 };
 export type Playlist = { id: string; name: string; tracks: Track[] };
+export type Album = { id: string; title: string; artist: string; art: string };

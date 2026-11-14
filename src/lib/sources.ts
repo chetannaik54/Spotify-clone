@@ -1,4 +1,4 @@
-import type { Track } from './types';
+import type { Album, Track } from './types';
 
 const j = async (url: string) => {
   const r = await fetch(url);
@@ -70,4 +70,18 @@ export async function fetchLyrics(t: Track): Promise<string | null> {
     const d = await j(`https://lrclib.net/api/get?track_name=${encodeURIComponent(t.title)}&artist_name=${encodeURIComponent(t.artist)}`);
     return d.syncedLyrics || d.plainLyrics || null;
   } catch { return null; }
+}
+
+/** iTunes albums (real catalogue data) + track listing for an album. */
+export async function searchAlbums(q: string, limit = 20): Promise<Album[]> {
+  const d = await j(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=IN&media=music&entity=album&limit=${limit}`);
+  return (d.results as any[]).map(x => ({ id: String(x.collectionId), title: x.collectionName, artist: x.artistName, art: String(x.artworkUrl100).replace('100x100', '600x600') }));
+}
+export async function albumTracks(id: string): Promise<Track[]> {
+  const d = await j(`https://itunes.apple.com/lookup?id=${id}&country=IN&entity=song`);
+  return (d.results as any[]).filter(x => x.wrapperType === 'track' && x.previewUrl).map(x => ({
+    id: `it-${x.trackId}`, title: x.trackName, artist: x.artistName, album: x.collectionName,
+    art: String(x.artworkUrl100).replace('100x100', '600x600'), url: x.previewUrl,
+    duration: Math.round((x.trackTimeMillis ?? 30000) / 1000), source: 'itunes' as const, preview: true,
+  }));
 }

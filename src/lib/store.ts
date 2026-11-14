@@ -4,12 +4,12 @@ import type { Playlist, Track } from './types';
 type State = {
   queue: Track[]; index: number; playing: boolean; shuffle: boolean; repeat: 'off' | 'all' | 'one';
   liked: Track[]; playlists: Playlist[]; recent: Track[]; local: Track[];
-  jamendoId: string; eq: number[]; crossfade: number; sleepAt: number | null; volume: number;
+  resume: { track: Track; pos: number; dur: number } | null; jamendoId: string; eq: number[]; crossfade: number; sleepAt: number | null; volume: number;
 };
 const KEY = 'swarify-state-v1';
 const defaults: State = {
   queue: [], index: -1, playing: false, shuffle: false, repeat: 'off', liked: [], playlists: [], recent: [], local: [],
-  jamendoId: '', eq: [0, 0, 0, 0, 0], crossfade: 0, sleepAt: null, volume: 1,
+  resume: null, jamendoId: '', eq: [0, 0, 0, 0, 0], crossfade: 0, sleepAt: null, volume: 1,
 };
 let state: State = (() => { try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}'), playing: false, sleepAt: null }; } catch { return defaults; } })();
 const subs = new Set<() => void>();

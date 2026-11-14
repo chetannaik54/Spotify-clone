@@ -1,5 +1,6 @@
 import { current, getState, set, step, useStore } from './store';
 import { getFile } from './db';
+import { resolveSrc } from './scan';
 import { useEffect, useState } from 'react';
 
 export const audio = new Audio();
@@ -26,6 +27,7 @@ export function setEq(i: number, g: number) {
 export const EQ_LABELS = ['60Hz', '230Hz', '910Hz', '3.6k', '14k'];
 
 let loadedId = '';
+let resumed = false;
 let objUrl = '';
 async function load(id: string, url: string) {
   if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = ''; }
@@ -37,8 +39,11 @@ async function load(id: string, url: string) {
   }
   // CORS-enabled load is needed for the equalizer; fall back to a plain load if the host refuses.
   audio.crossOrigin = wired ? 'anonymous' : null;
-  audio.src = src;
+  audio.src = resolveSrc(src);
   loadedId = id;
+  const r = getState().resume;
+  if (!resumed && r && r.track.id === id && r.pos > 1) { const pos = r.pos; audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true }); }
+  resumed = true;
 }
 
 let fading = false;
@@ -52,6 +57,10 @@ function tick() {
   if (s.sleepAt && Date.now() >= s.sleepAt) { set({ playing: false, sleepAt: null }); }
 }
 setInterval(tick, 250);
+setInterval(() => {
+  const t = current(); if (!t || audio.paused || !audio.currentTime) return;
+  set({ resume: { track: t, pos: audio.currentTime, dur: isFinite(audio.duration) ? audio.duration : 0 } });
+}, 5000);
 
 audio.addEventListener('ended', () => step(1, true));
 audio.addEventListener('error', () => {
