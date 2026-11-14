@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { confirmMatch, confirmSelectedMatches, catalogue, giveMatchConsent, hasMatchConsent, rejectMatch, retryFailedMatches, runMatching, skipTrack, skipUnavailable, stopMatching, useCollectorUi } from '../lib/collector/service';
+import { setReview, confirmMatch, confirmSelectedMatches, catalogue, giveMatchConsent, hasMatchConsent, rejectMatch, retryFailedMatches, runMatching, skipTrack, skipUnavailable, stopMatching, useCollectorUi } from '../lib/collector/service';
 import type { MatchRecord, ScoredCandidate } from '../lib/collector/match/types';
 import type { ImportedPlaylist, ImportedTrack } from '../lib/collector/types';
 import { displayName } from '../lib/collector/playlistNames';
@@ -65,7 +65,7 @@ export default function Matching({ tracks, matches, playlists }: { tracks: Impor
         <button className="chip" disabled={m.running || !sel.size} onClick={async () => { await confirmSelectedMatches([...sel]); setSel(new Set()); }}>Confirm selected ({sel.size})</button>
         <button className="chip" disabled={m.running || !count('none')} onClick={retryFailedMatches}>Retry failed</button>
         <button className="chip" disabled={m.running || !count('none')} onClick={skipUnavailable}>Skip unavailable</button>
-        <button className="chip" disabled title="Nothing is downloaded until you have reviewed the results. The downloader arrives in the next step.">Download eligible ({sum.downloadable})</button>
+        <button className="chip" disabled={!sum.downloadable} title="Opens the review list — nothing downloads until you confirm" onClick={() => setReview(true)}>Review downloads ({sum.downloadable})</button>
         <button className="chip" disabled={!songs.length} onClick={async () => { const txt = buildReport(ordered, matches); try { await navigator.clipboard.writeText(txt); setCopied(`Copied ${ordered.length} rows — paste them anywhere to share the real results`); } catch { setCopied('Copy failed — your browser blocked clipboard access'); } }}>Copy results</button>
       </div>
       {copied && <p className="okmsg">{copied}</p>}

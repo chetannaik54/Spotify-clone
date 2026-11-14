@@ -2,9 +2,9 @@ import type { AccountMeta, ImportedPlaylist, ImportedTrack, MatchingStatus, Plat
 import type { MatchRecord } from './match/types';
 import { IdbKV, MemoryKV, type KV } from './kv';
 
-export type Stores = { tracks: KV<ImportedTrack>; playlists: KV<ImportedPlaylist>; syncs: KV<SyncRecord>; accounts: KV<AccountMeta>; matches: KV<MatchRecord> };
-export const idbStores = (): Stores => ({ tracks: new IdbKV('c_tracks'), playlists: new IdbKV('c_playlists'), syncs: new IdbKV('c_syncs'), accounts: new IdbKV('c_accounts'), matches: new IdbKV('c_matches') });
-export const memoryStores = (): Stores => ({ tracks: new MemoryKV(), playlists: new MemoryKV(), syncs: new MemoryKV(), accounts: new MemoryKV(), matches: new MemoryKV() });
+export type Stores = { tracks: KV<ImportedTrack>; playlists: KV<ImportedPlaylist>; syncs: KV<SyncRecord>; accounts: KV<AccountMeta>; matches: KV<MatchRecord>; downloads: KV<import('./download/types').DownloadJob> };
+export const idbStores = (): Stores => ({ tracks: new IdbKV('c_tracks'), playlists: new IdbKV('c_playlists'), syncs: new IdbKV('c_syncs'), accounts: new IdbKV('c_accounts'), matches: new IdbKV('c_matches'), downloads: new IdbKV('c_downloads') });
+export const memoryStores = (): Stores => ({ tracks: new MemoryKV(), playlists: new MemoryKV(), syncs: new MemoryKV(), accounts: new MemoryKV(), matches: new MemoryKV(), downloads: new MemoryKV() });
 
 export type IncomingTrack = Pick<ImportedTrack, 'source_track_id' | 'song_title' | 'artist_name' | 'album_name' | 'artwork_url' | 'duration_ms' | 'source_url' | 'import_status'> & { added_at?: string | null; platform?: Platform; channel?: string; music_confidence?: number };
 export type IncomingPlaylist = Pick<ImportedPlaylist, 'source_playlist_id' | 'kind' | 'name' | 'artwork_url' | 'owner' | 'total' | 'snapshot_id'>;
@@ -91,6 +91,12 @@ export class Catalogue {
     await this.s.tracks.put(trackId, { ...t, import_status: isMusic ? 'imported' : 'not_music', matching_status: isMusic ? 'pending_match' : 'unavailable', user_override: true, updated_at: Date.now() });
     this.emit();
   }
+  /** A file now exists on this device for this song: link it and mark the song downloaded. */
+  async markDownloaded(trackId: string, localId: string) {
+    const t = await this.s.tracks.get(trackId); if (!t) return;
+    await this.s.tracks.put(trackId, { ...t, matching_status: 'downloaded', local_file_id: localId, updated_at: Date.now() }); this.emit();
+  }
+  async setStatus(trackId: string, status: MatchingStatus) { const t = await this.s.tracks.get(trackId); if (t && t.matching_status !== 'downloaded') { await this.s.tracks.put(trackId, { ...t, matching_status: status, updated_at: Date.now() }); this.emit(); } }
   // ---- matching ----
   async getMatch(trackId: string) { return this.s.matches.get(trackId); }
   async matches() { return this.s.matches.all(); }

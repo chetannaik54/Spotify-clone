@@ -7,6 +7,7 @@ import { SPOTIFY_SCOPES } from '../lib/collector/spotify/auth';
 import type { ImportedPlaylist, ImportedTrack, MatchingStatus } from '../lib/collector/types';
 import { Art, fmt } from './Bits';
 import Matching from './Matching';
+import Downloads from './Downloads';
 import { displayName } from '../lib/collector/playlistNames';
 import Icon from './Icon';
 
@@ -39,9 +40,7 @@ export default function Collector() {
       {likedLists.length ? likedLists.map(l => <PlaylistRow key={l.id} p={l} rev={rev} open={open === l.id} onToggle={() => setOpen(open === l.id ? null : l.id)} />) : <p className="empty">Import your Spotify liked songs or YouTube liked videos to see them here.</p>}
 
       <h2>Music matching</h2><Matching tracks={data.tracks} matches={data.matches} playlists={data.playlists} />
-      <h2>Download manager</h2>
-      <section className="panel"><p className="empty">Downloads are not enabled yet. When they are, only recordings whose source explicitly permits downloading will be offered, and nothing downloads without your approval.</p>
-        <div className="scan"><button className="chip" disabled>Download all eligible</button></div></section>
+      <h2>Download manager</h2><Downloads tracks={data.tracks} playlists={data.playlists} />
 
       <h2>Sync history</h2>
       {!data.syncs.length ? <p className="empty">No syncs yet.</p> : <div className="list">{data.syncs.slice(0, 10).map(s => (

@@ -114,14 +114,14 @@ export function ScanButtons({ compact }: { compact?: boolean }) {
 export function Library() {
   const liked = useStore(s => s.liked); const playlists = useStore(s => s.playlists); const local = useStore(s => s.local);
   const sel = useNav(n => n.libSel) ?? 'liked'; const [folder, setFolder] = useState('');
-  const tabs = [{ id: 'liked', name: 'Liked Songs', tracks: liked }, { id: 'local', name: 'My Music', tracks: local }, ...playlists.map(p => ({ id: p.id, name: p.name, tracks: p.tracks }))];
+  const tabs = [{ id: 'liked', name: 'Liked Songs', tracks: liked }, { id: 'local', name: 'My Music', tracks: local }, ...playlists.map(p => ({ id: p.id, name: p.name, tracks: p.tracks, offline: p.source ? p.tracks.filter(x => x.url).length : (null as number | null) }))];
   const cur = tabs.find(t => t.id === sel) ?? tabs[0];
   const folders = cur.id === 'local' ? [...local.reduce((m, t) => m.set(t.folder || 'Other', (m.get(t.folder || 'Other') ?? 0) + 1), new Map<string, number>())].sort((a, b) => a[0].localeCompare(b[0])) : [];
   const shown = cur.id === 'local' && folder ? cur.tracks.filter(t => (t.folder || 'Other') === folder) : cur.tracks;
   return (
     <div className="view">
       <h1>Your Library</h1>
-      <div className="chips scrollx">{tabs.map(t => <button key={t.id} className={`chip ${t.id === cur.id ? 'sel' : ''}`} onClick={() => { go({ libSel: t.id }); setFolder(''); }}>{t.name} <small>{t.tracks.length}</small></button>)}
+      <div className="chips scrollx">{tabs.map(t => <button key={t.id} className={`chip ${t.id === cur.id ? 'sel' : ''}`} onClick={() => { go({ libSel: t.id }); setFolder(''); }}>{t.name} <small>{'offline' in t && t.offline != null ? `${t.offline}/${t.tracks.length}` : t.tracks.length}</small></button>)}
         <button className="chip" onClick={() => { const n = prompt('Playlist name?'); if (n) newPlaylist(n); }}>＋ Playlist</button></div>
       {cur.id === 'local' && <ScanButtons />}
       {folders.length > 1 && <div className="chips scrollx"><button className={`chip ${!folder ? 'sel' : ''}`} onClick={() => setFolder('')}>All folders</button>

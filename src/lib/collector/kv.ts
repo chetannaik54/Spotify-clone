@@ -29,8 +29,8 @@ export class IdbKV<T> implements KV<T> {
   async clear() { await this.tx('readwrite', s => s.clear()); }
 }
 
-export const DB_VERSION = 4;
-export const COLLECTOR_STORES = ['c_tracks', 'c_playlists', 'c_syncs', 'c_accounts', 'c_matches', 'lyrics']; // 'lyrics' = offline lyric cache
+export const DB_VERSION = 5;
+export const COLLECTOR_STORES = ['c_tracks', 'c_playlists', 'c_syncs', 'c_accounts', 'c_matches', 'c_downloads', 'lyrics']; // 'lyrics' = offline lyric cache
 let dbp: Promise<IDBDatabase> | null = null;
 export function openDb(): Promise<IDBDatabase> {
   if (!dbp) dbp = new Promise((res, rej) => {

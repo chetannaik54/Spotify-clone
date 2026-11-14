@@ -8,6 +8,12 @@ import { GoogleAuth, GoogleReauthRequired, YT_SCOPE, type DeviceCode } from './g
 import { YouTubeClient } from './youtube/client';
 import { httpFetch } from '../http';
 import { getState, set as setStore } from '../store';
+import { buildMirror, mergeMirror } from './mirror';
+import { DownloadManager } from './download/manager';
+import { NativeTransport, hasNativeDownloader } from './download/native';
+import { WebTransport } from './download/web';
+import type { DownloadJob } from './download/types';
+import type { Track } from '../types';
 import { confirmMatch, matchMany, rejectMatch, skipTrack, type RunProgress } from './match/engine';
 import { ArchiveSource } from './match/sources/archive';
 import { JamendoSource } from './match/sources/jamendo';
@@ -30,8 +36,8 @@ const youtubeClient = new YouTubeClient({ fetch: (...a) => httpFetch(...a), auth
 void YT_SCOPE;
 
 // ---- transient UI state (busy / messages) ----
-type Ui = { match: { running: boolean; progress: RunProgress | null; note: string }; device: Partial<Record<Platform, { code: string; url: string; expiresAt: number }>>; busy: Partial<Record<Platform, string>>; msg: Partial<Record<Platform, { kind: 'ok' | 'err'; text: string }>>; needsReauth: Partial<Record<Platform, boolean>>; connected: Partial<Record<Platform, boolean>> };
-let ui: Ui = { match: { running: false, progress: null, note: '' }, device: {}, busy: {}, msg: {}, needsReauth: {}, connected: {} };
+type Ui = { review: boolean; match: { running: boolean; progress: RunProgress | null; note: string }; device: Partial<Record<Platform, { code: string; url: string; expiresAt: number }>>; busy: Partial<Record<Platform, string>>; msg: Partial<Record<Platform, { kind: 'ok' | 'err'; text: string }>>; needsReauth: Partial<Record<Platform, boolean>>; connected: Partial<Record<Platform, boolean>> };
+let ui: Ui = { review: false, match: { running: false, progress: null, note: '' }, device: {}, busy: {}, msg: {}, needsReauth: {}, connected: {} };
 const subs = new Set<() => void>();
 const setUi = (f: (u: Ui) => Ui) => { ui = f(ui); subs.forEach(s => s()); };
 export const useCollectorUi = () => useSyncExternalStore(cb => { subs.add(cb); return () => subs.delete(cb); }, () => ui);
@@ -135,6 +141,8 @@ export async function disconnectSpotify(purge: boolean) {
 /** Wire deep links (Android) / page-load redirect (web). Call once at startup. */
 export function initCollector() {
   refreshConnection();
+  catalogue.subscribe(mirrorNow); mirrorNow();
+  downloads.recover().catch(() => {}); setInterval(() => downloads.tick().catch(() => {}), 15000); addEventListener('online', () => downloads.tick().catch(() => {}));
   if (isNativeApp) App.addListener('appUrlOpen', ({ url }) => { if (url.startsWith('com.personal.swarify://auth/spotify')) handleCallback(url); }).catch(e => console.warn('deep-link listener failed', e));
   else if (/[?&](code|error)=/.test(location.search) && /[?&]state=/.test(location.search)) { handleCallback(location.href).then(() => history.replaceState({}, '', location.pathname)); }
 }
@@ -176,6 +184,10 @@ export async function runMatching(filter: (t: ImportedTrack) => boolean = () => 
   try {
     const tracks = (await catalogue.tracks()).filter(filter);
     const r = await matchMany(catalogue, tracks, { sources, force, signal: matchAbort.signal, concurrency: 2, onProgress: p => setMatchUi({ progress: p }) });
+    if (getState().dl.auto) {            // opt-in only: exact, verified, auto-selected matches
+      const ids: string[] = []; for (const t of await catalogue.tracks()) { const m = await catalogue.getMatch(t.id); if (m?.selected_by === 'auto' && (await downloads.eligibility(t)).ok) ids.push(t.id); }
+      if (ids.length) await downloads.enqueue(ids);
+    }
     setMatchUi({ note: `Checked ${r.done} songs${r.failed ? ` · ${r.failed} could not be searched (network) — use “Retry failed”` : ''}${matchAbort.signal.aborted ? ' · stopped' : ''}` });
   } catch (e) { setMatchUi({ note: (e as Error).message }); }
   finally { setMatchUi({ running: false }); }
@@ -185,3 +197,26 @@ export const retryFailedMatches = () => runMatching(t => t.matching_status === '
 export async function confirmSelectedMatches(trackIds: string[]) { for (const id of trackIds) { const r = await catalogue.getMatch(id); const best = r?.candidates[0]; if (best && !r?.selected) await confirmMatch(catalogue, id, best.key); } }
 export async function skipUnavailable() { for (const t of await catalogue.tracks()) if (t.import_status === 'imported' && (t.matching_status === 'no_match' || t.matching_status === 'failed')) await skipTrack(catalogue, t.id); }
 export { confirmMatch, rejectMatch, skipTrack };
+
+
+// ---------------- Download manager (Milestone 4) ----------------
+export const downloads = new DownloadManager({
+  cat: catalogue, transport: hasNativeDownloader ? new NativeTransport() : new WebTransport(),
+  settings: () => getState().dl, localTracks: () => getState().local,
+  registerLocal: (t: Track) => { setStore(s => ({ local: [t, ...s.local.filter(x => x.id !== t.id)] })); mirrorNow(); },
+});
+export function useDownloadJobs(): DownloadJob[] {
+  const [jobs, setJobs] = useState<DownloadJob[]>([]);
+  useEffect(() => { let live = true; const load = () => downloads.jobs().then(j => { if (live) setJobs(j); }); load(); const off = downloads.subscribe(load); return () => { live = false; off(); }; }, []);
+  return jobs;
+}
+
+// ---------------- Mirrored Swarify playlists (Phase 8) ----------------
+let mirrorTimer: ReturnType<typeof setTimeout> | null = null;
+export function mirrorNow() {
+  if (mirrorTimer) clearTimeout(mirrorTimer);
+  mirrorTimer = setTimeout(async () => {
+    try { const [pls, tracks] = await Promise.all([catalogue.playlists(), catalogue.tracks()]); setStore(s => ({ playlists: mergeMirror(s.playlists, buildMirror(pls, tracks, s.local)) })); } catch (e) { console.warn('playlist mirror failed', e); }
+  }, 250);
+}
+export const setReview = (open: boolean) => setUi(u => ({ ...u, review: open }));

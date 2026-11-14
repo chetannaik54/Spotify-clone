@@ -35,9 +35,9 @@ export function TrackRow({ t, list, i }: { t: Track; list: Track[]; i: number })
   const playing = useStore(s => current(s)?.id === t.id);
   const [menu, setMenu] = useState(false);
   return (
-    <div className={`row ${playing ? 'on' : ''}`} onClick={() => playList(list, i)}>
+    <div className={`row ${playing ? 'on' : ''} ${t.unavailable ? 'unavail' : ''}`} onClick={() => !t.unavailable && playList(list, i)} aria-disabled={!!t.unavailable}>
       <Art src={t.art} title={t.title} cls="row-art" />
-      <div className="meta"><b>{t.title}</b><span>{t.artist}{t.preview ? ' · 30s preview' : ''}</span></div>
+      <div className="meta"><b>{t.title}</b><span>{t.unavailable ? `${t.artist} · ${t.unavailable}` : `${t.artist}${t.preview ? ' · 30s preview' : ''}`}</span></div>
       <button className={`ic ${liked ? 'liked' : ''}`} aria-label="Like" onClick={e => { e.stopPropagation(); toggleLike(t); }}><Icon n="heart" size={20} fill={liked} /></button>
       <span className="dur">{t.duration ? fmt(t.duration) : ''}</span>
       <div className="menu-wrap">

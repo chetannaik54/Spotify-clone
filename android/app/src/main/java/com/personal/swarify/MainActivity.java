@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MediaScanPlugin.class);
         registerPlugin(NativePlayerPlugin.class);
         registerPlugin(SecureStorePlugin.class);
+        registerPlugin(DownloaderPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
