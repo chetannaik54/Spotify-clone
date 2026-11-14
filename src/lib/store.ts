@@ -5,12 +5,12 @@ import type { JourneyPlan } from './journey/types';
 type State = {
   queue: Track[]; index: number; playing: boolean; shuffle: boolean; repeat: 'off' | 'all' | 'one';
   liked: Track[]; playlists: Playlist[]; recent: Track[]; local: Track[];
-  journey: JourneyPlan | null; journeyVerified: { passed: boolean; at: number } | null; resume: { track: Track; pos: number; dur: number } | null; dl: { wifiOnly: boolean; maxStorageMB: number; auto: boolean }; jamendoId: string; soundcloudId: string; matchSources: { jamendo: boolean; archive: boolean; soundcloud: boolean }; eq: number[]; crossfade: number; sleepAt: number | null; volume: number;
+  startAt: { id: string; pos: number } | null; quizBoard: import('./journey/quiz').BoardEntry[]; moodFeedback: Record<string, Record<string, 1 | -1>>; audioLib: import('./journey/library').AudioItem[]; audioProgress: Record<string, { pos: number; dur: number; at: number }>; memories: import('./journey/memories').Memory[]; journey: JourneyPlan | null; journeyVerified: { passed: boolean; at: number; sig: string; report?: import('./journey/verify').VerifyReport } | null; resume: { track: Track; pos: number; dur: number } | null; dl: { wifiOnly: boolean; maxStorageMB: number; auto: boolean }; jamendoId: string; soundcloudId: string; matchSources: { jamendo: boolean; archive: boolean; soundcloud: boolean }; eq: number[]; crossfade: number; sleepAt: number | null; volume: number;
 };
 const KEY = 'swarify-state-v1';
 const defaults: State = {
   queue: [], index: -1, playing: false, shuffle: false, repeat: 'off', liked: [], playlists: [], recent: [], local: [],
-  journey: null, journeyVerified: null, resume: null, dl: { wifiOnly: true, maxStorageMB: 4096, auto: false }, jamendoId: '', soundcloudId: '', matchSources: { jamendo: true, archive: true, soundcloud: true }, eq: [0, 0, 0, 0, 0], crossfade: 0, sleepAt: null, volume: 1,
+  startAt: null, quizBoard: [], moodFeedback: {}, audioLib: [], audioProgress: {}, memories: [], journey: null, journeyVerified: null, resume: null, dl: { wifiOnly: true, maxStorageMB: 4096, auto: false }, jamendoId: '', soundcloudId: '', matchSources: { jamendo: true, archive: true, soundcloud: true }, eq: [0, 0, 0, 0, 0], crossfade: 0, sleepAt: null, volume: 1,
 };
 let state: State = (() => { try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}'), playing: false, sleepAt: null }; } catch { return defaults; } })();
 const subs = new Set<() => void>();
@@ -59,4 +59,10 @@ export function newPlaylist(name: string, tracks: Track[] = []) {
 }
 export function addToPlaylist(pid: string, t: Track) {
   set(s => ({ playlists: s.playlists.map(p => p.id === pid && !p.tracks.some(x => x.id === t.id) ? { ...p, tracks: [...p.tracks, t] } : p) }));
+}
+
+/** Remember where the listener is in a story/podcast/sleep item so it can resume later. */
+export function saveAudioProgress(t: Track | undefined, pos: number, dur: number) {
+  if (!t || !getState().audioLib.some(i => i.trackId === t.id)) return;
+  set(s => ({ audioProgress: { ...s.audioProgress, [t.id]: { pos, dur, at: Date.now() } } }));
 }

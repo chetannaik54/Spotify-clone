@@ -7,6 +7,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import android.provider.OpenableColumns;
+import java.io.InputStream;
+import org.json.JSONArray;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -104,6 +109,40 @@ public class MediaScanPlugin extends Plugin {
             } catch (Exception e) {
                 call.reject("Scan failed: " + e.getMessage());
             }
+        }).start();
+    }
+
+    /** Offline-readiness check: for each URI — exists, readable, starts like audio, and Android can demux an audio track. */
+    @PluginMethod
+    public void verify(final PluginCall call) {
+        final JSArray uris = call.getArray("uris");
+        new Thread(() -> {
+            JSArray out = new JSArray();
+            for (int i = 0; i < uris.length(); i++) {
+                JSObject r = new JSObject(); String uri = "";
+                try { uri = uris.getString(i); } catch (Exception ignored) { }
+                r.put("uri", uri); r.put("exists", false); r.put("readable", false); r.put("header", false); r.put("decodable", false); r.put("size", 0); r.put("durationMs", 0);
+                try {
+                    Uri u = Uri.parse(uri); android.content.ContentResolver cr = getContext().getContentResolver();
+                    byte[] h = new byte[16]; int n;
+                    try (InputStream in = cr.openInputStream(u)) { r.put("exists", in != null); n = in == null ? 0 : in.read(h); }
+                    r.put("readable", n > 0);
+                    String h4 = n >= 4 ? new String(h, 0, 4, java.nio.charset.StandardCharsets.ISO_8859_1) : "";
+                    String h48 = n >= 8 ? new String(h, 4, 4, java.nio.charset.StandardCharsets.ISO_8859_1) : "";
+                    r.put("header", n >= 12 && (h4.startsWith("ID3") || ((h[0] & 0xff) == 0xff && (h[1] & 0xe0) == 0xe0) || h4.equals("fLaC") || h4.equals("OggS") || h4.equals("RIFF") || h48.equals("ftyp")));
+                    try (Cursor c = cr.query(u, new String[]{OpenableColumns.SIZE}, null, null, null)) { if (c != null && c.moveToFirst() && !c.isNull(0)) r.put("size", c.getLong(0)); }
+                    MediaExtractor ex = new MediaExtractor();
+                    try {
+                        ex.setDataSource(getContext(), u, null);
+                        for (int t = 0; t < ex.getTrackCount(); t++) {
+                            MediaFormat f = ex.getTrackFormat(t); String mime = f.getString(MediaFormat.KEY_MIME);
+                            if (mime != null && mime.startsWith("audio/")) { r.put("decodable", true); if (f.containsKey(MediaFormat.KEY_DURATION)) r.put("durationMs", f.getLong(MediaFormat.KEY_DURATION) / 1000); break; }
+                        }
+                    } finally { ex.release(); }
+                } catch (Exception e) { r.put("error", String.valueOf(e.getMessage())); }
+                out.put(r);
+            }
+            JSObject res = new JSObject(); res.put("results", out); call.resolve(res);
         }).start();
     }
 }

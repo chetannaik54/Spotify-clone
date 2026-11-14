@@ -4,7 +4,8 @@ import { putFile } from './db';
 import { set } from './store';
 
 type Raw = { id: number; title: string; artist: string; album: string; albumId: number; duration: number; uri: string; folder: string; size?: number; year?: number; genre?: string };
-const MediaScan = registerPlugin<{ scan(): Promise<{ tracks: Raw[] }> }>('MediaScan');
+export type VerifyRaw = { uri: string; exists: boolean; readable: boolean; header: boolean; decodable: boolean; size: number; durationMs: number; error?: string };
+export const MediaScan = registerPlugin<{ scan(): Promise<{ tracks: Raw[] }>; verify(o: { uris: string[] }): Promise<{ results: VerifyRaw[] }> }>('MediaScan');
 export const isNative = Capacitor.isNativePlatform();
 
 /** Convert a content:// URI into a URL the WebView's <audio>/<img> can load (served by Capacitor's local server). */

@@ -1,4 +1,4 @@
-import { current, getState, hooks, set, step, useStore } from './store';
+import { current, getState, hooks, saveAudioProgress, set, step, useStore } from './store';
 import { getFile } from './db';
 import { resolveSrc } from './scan';
 import { hasNativePlayer } from './native';
@@ -44,6 +44,8 @@ async function load(id: string, url: string) {
   audio.crossOrigin = wired ? 'anonymous' : null;
   audio.src = resolveSrc(src);
   loadedId = id;
+  const sa = getState().startAt;
+  if (sa && sa.id === id) { const pos = sa.pos; audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true }); set({ startAt: null }); }
   const r = getState().resume;
   if (!resumed && r && r.track.id === id && r.pos > 1) { const pos = r.pos; audio.addEventListener('loadedmetadata', () => { audio.currentTime = pos; }, { once: true }); }
   resumed = true;
@@ -62,7 +64,7 @@ function tick() {
 if (!hasNativePlayer) setInterval(tick, 250);
 if (!hasNativePlayer) setInterval(() => {
   const t = current(); if (!t || audio.paused || !audio.currentTime) return;
-  set({ resume: { track: t, pos: audio.currentTime, dur: isFinite(audio.duration) ? audio.duration : 0 } });
+  set({ resume: { track: t, pos: audio.currentTime, dur: isFinite(audio.duration) ? audio.duration : 0 } }); saveAudioProgress(t, audio.currentTime, isFinite(audio.duration) ? audio.duration : 0);
 }, 5000);
 
 audio.addEventListener('ended', () => step(1, true));

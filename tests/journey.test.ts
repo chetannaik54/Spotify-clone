@@ -102,3 +102,40 @@ describe('lyrics cache (offline lyrics)', () => {
     expect((await c.cachedKeys()).size).toBe(1);
   });
 });
+
+
+import { verifyJourney } from '../src/lib/journey/verify';
+import { selectionSig } from '../src/lib/journey/inventory';
+describe('offline verification', () => {
+  const ok = (uri: string, o = {}) => ({ uri, exists: true, readable: true, header: true, decodable: true, size: 5 * MB, durationMs: 240000, ...o });
+  const lib2 = lib(6); const plan2 = defaultPlan();
+  const deps = (res: Record<string, ReturnType<typeof ok>>, extra = {}) => ({ nativeVerify: async (uris: string[]) => uris.map(u => res[u] ?? { uri: u, exists: false, readable: false, header: false, decodable: false, size: 0, durationMs: 0 }), lyricKeys: new Set<string>(), freeBytes: async () => 5 * 1024 * MB, ...extra });
+  it('passes only when every file is present, valid and decodable', async () => {
+    const r = await verifyJourney(lib2, plan2, deps(Object.fromEntries(lib2.map(t => [t.url, ok(t.url)])), { lyricKeys: new Set(lib2.map(lyricsKey)) }));
+    expect(r).toMatchObject({ passed: true, total: 6, ok: 6, reasons: [] }); expect(r.sig).toBe(selectionSig(lib2));
+  });
+  it('missing, truncated, bad-header, undecodable and wrong-length files each fail with a clear reason', async () => {
+    const res = Object.fromEntries(lib2.map(t => [t.url, ok(t.url)])); delete res[lib2[0].url];
+    res[lib2[1].url] = ok(lib2[1].url, { size: 800 }); res[lib2[2].url] = ok(lib2[2].url, { header: false }); res[lib2[3].url] = ok(lib2[3].url, { decodable: false }); res[lib2[4].url] = ok(lib2[4].url, { durationMs: 90000 });
+    const r = await verifyJourney(lib2, plan2, deps(res)); expect(r.passed).toBe(false); expect(r.missing.length).toBe(1); expect(r.corrupt.length).toBe(4); expect(r.ok).toBe(1);
+    expect(r.corrupt.map(c => c.detail).join('|')).toMatch(/Only 800 bytes.*does not start like audio.*cannot decode.*does not match/s); expect(r.reasons.join()).toMatch(/missing.*damaged/s);
+  });
+  it('browser cannot check device files → unverifiable → never passes', async () => { const r = await verifyJourney(lib2, plan2, { lyricKeys: new Set() }); expect(r.unverifiable.length).toBe(6); expect(r.passed).toBe(false); });
+  it('streamed songs are flagged: the mix must not need the network', async () => { const r = await verifyJourney([...lib2, { ...t(99), url: 'https://x/y.mp3' }], plan2, deps(Object.fromEntries(lib2.map(x => [x.url, ok(x.url)])))); expect(r.network.length).toBe(1); expect(r.passed).toBe(false); });
+  it('with sing-along on, lyrics for ≥90 % of songs are required; otherwise they are optional', async () => {
+    const files = Object.fromEntries(lib2.map(x => [x.url, ok(x.url)]));
+    expect((await verifyJourney(lib2, { ...plan2, prefs: { ...plan2.prefs, sing: true } }, deps(files))).reasons.join()).toMatch(/Lyrics are stored for only 0 of 6/);
+    expect((await verifyJourney(lib2, { ...plan2, prefs: { ...plan2.prefs, sing: false } }, deps(files))).passed).toBe(true);
+  });
+  it('low free space and empty mix fail; an empty mix can never pass', async () => {
+    const files = Object.fromEntries(lib2.map(x => [x.url, ok(x.url)])); expect((await verifyJourney(lib2, { ...plan2, prefs: { ...plan2.prefs, sing: false } }, deps(files, { freeBytes: async () => 50 * MB }))).reasons.join()).toMatch(/almost out of free space/);
+    expect((await verifyJourney([], plan2, deps({}))).passed).toBe(false);
+  });
+  it('verification goes stale when the mix or a file changes → READY is withdrawn', () => {
+    const local = lib(100); const inv = buildInventory({ local, importedStatuses: [], lyricKeys: new Set() }); const sel = selectForJourney(local, plan({ hours: 5 }));
+    const verified = { passed: true, at: 1, sig: selectionSig(sel.tracks) };
+    expect(readiness(buildChecklist(plan({ hours: 5 }), inv, sel, verified, new Set(sel.tracks.map(lyricsKey)))).status).toBe('READY');
+    const changed = { ...sel, tracks: sel.tracks.slice(1) }; const items = buildChecklist(plan({ hours: 5 }), inv, changed, verified, new Set());
+    expect(items.find(i => i.id === 'verify')!.level).toBe('todo'); expect(items.find(i => i.id === 'verify')!.detail).toMatch(/changed since/); expect(readiness(items).status).toBe('NOT_READY');
+  });
+});

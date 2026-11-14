@@ -1,17 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useCollectorData } from '../lib/collector/service';
-import { buildChecklist, buildInventory, fmtBytes, fmtDur, readiness, selectForJourney, type Level } from '../lib/journey/inventory';
+import { buildChecklist, buildInventory, fmtBytes, fmtDur, readiness, selectForJourney, selectionSig, type Level } from '../lib/journey/inventory';
 import { cacheLyricsFor } from '../lib/journey/prepare';
+import { verifyJourney, type VerifyReport } from '../lib/journey/verify';
+import { getFile } from '../lib/db';
+import { MediaScan, isNative } from '../lib/scan';
+import { deviceFreeBytes } from '../lib/collector/service';
 import { defaultPlan, EXPERIENCES, HOURS, JOURNEY_TYPES, type Experience, type JourneyPlan } from '../lib/journey/types';
-import { lyricsCache } from '../lib/lyricsCache';
+import { lyricsCache, lyricsKey } from '../lib/lyricsCache';
 import { newPlaylist, playList, set, useStore } from '../lib/store';
 import Icon from './Icon';
+import JourneyQuiz from './JourneyQuiz';
+import JourneyMood from './JourneyMood';
+import JourneyAudio from './JourneyAudio';
+import JourneyMemories from './JourneyMemories';
+import { go } from '../lib/nav';
+import { byKind, resolveItems } from '../lib/journey/library';
+import type { QuizMode } from '../lib/journey/quiz';
 
 const STORAGE_STEPS = [512, 1024, 2048, 4096, 8192, 16384, 32768];
 const LEVEL_ICON: Record<Level, string> = { ok: '✓', warn: '!', fail: '✕', todo: '…', info: 'i' };
 const THEME: Record<string, string> = { flight: 'sky', train: 'dusk', road: 'sunset', relax: 'calm' };
 
+type View = 'dash' | 'quiz' | 'mood' | 'story' | 'podcast' | 'sleep' | 'memories';
 export default function Journey() {
+  const [view, setView] = useState<View>('dash'); const [quizMode, setQuizMode] = useState<QuizMode>('song');
+  const audioLib = useStore(s => s.audioLib); const memories = useStore(s => s.memories);
   const plan = useStore(s => s.journey); const local = useStore(s => s.local); const verified = useStore(s => s.journeyVerified);
   const data = useCollectorData();
   const [lyricKeys, setLyricKeys] = useState<Set<string>>(new Set());
@@ -23,10 +37,25 @@ export default function Journey() {
   const sel = useMemo(() => selectForJourney(local, p), [local, p]);
   const checks = useMemo(() => buildChecklist(p, inv, sel, verified, lyricKeys), [p, inv, sel, verified, lyricKeys]);
   const ready = readiness(checks);
+  const [vbusy, setVbusy] = useState(''); 
+  const runVerify = async () => {
+    setVbusy('Checking files…');
+    try {
+      const report = await verifyJourney(sel.tracks, p, { nativeVerify: isNative ? async uris => (await MediaScan.verify({ uris })).results : undefined, webFile: getFile, freeBytes: deviceFreeBytes, lyricKeys, onProgress: (d, t) => setVbusy(`Checking files… ${d}/${t}`) });
+      set({ journeyVerified: { passed: report.passed, at: report.at, sig: report.sig, report } });
+    } catch (e) { setVbusy(`Verification failed: ${(e as Error).message}`); return; }
+    setVbusy('');
+  };
   const update = (patch: Partial<JourneyPlan>) => set({ journey: { ...p, ...patch, created_at: plan?.created_at ?? Date.now() }, journeyVerified: null });
   const meta = JOURNEY_TYPES.find(t => t.id === p.type)!;
 
   if (!plan) return <Intro onStart={() => set({ journey: defaultPlan() })} />;
+  const back = () => setView('dash');
+  if (view === 'quiz') return <JourneyQuiz onBack={back} initialMode={quizMode} />;
+  if (view === 'mood') return <JourneyMood onBack={back} />;
+  if (view === 'story' || view === 'podcast' || view === 'sleep') return <JourneyAudio kind={view} onBack={back} />;
+  if (view === 'memories') return <JourneyMemories onBack={back} />;
+  const resolved = resolveItems(audioLib, local); const nAudio = (k: 'story' | 'podcast' | 'sleep') => byKind(resolved, k).filter(r => !r.missing).length;
   return (
     <div className="view journey">
       <section className={`jhero theme-${THEME[p.type]}`}>
@@ -54,15 +83,25 @@ export default function Journey() {
         </section>
       </div>
 
+      <h2>Offline verification</h2>
+      <VerifyPanel report={verified?.report} stale={!!verified && verified.sig !== selectionSig(sel.tracks)} busy={vbusy} disabled={!sel.tracks.length || !!vbusy} onRun={runVerify} />
+
       <h2>Preparation checklist</h2>
       <div className="checklist">{checks.map(c => (
         <div key={c.id} className={`check lv-${c.level}`}><span className="lv" aria-label={c.level}>{LEVEL_ICON[c.level]}</span>
           <div className="meta"><b>{c.label}{c.mandatory && <small className="req">required</small>}</b><span className="wrap">{c.detail}</span></div></div>))}</div>
 
       <h2>Your journey</h2>
-      <div className="exp-grid">{EXPERIENCES.map(e => <ExperienceTile key={e.id} id={e.id} label={e.label} blurb={e.blurb} milestone={e.milestone} enabled={p.prefs[e.id]}
-        count={e.id === 'music' ? sel.tracks.length : e.id === 'stories' ? inv.library.stories : e.id === 'podcasts' ? inv.library.podcasts : e.id === 'sleep' ? inv.library.sleep : undefined}
-        onPlay={() => sel.tracks.length && playList(sel.tracks, 0)} />)}</div>
+      <div className="exp-grid">{EXPERIENCES.map(e => {
+        const n = e.id === 'music' ? sel.tracks.length : e.id === 'stories' ? nAudio('story') : e.id === 'podcasts' ? nAudio('podcast') : e.id === 'sleep' ? nAudio('sleep') : e.id === 'memories' ? memories.length : inv.music.count;
+        const act: Record<string, () => void> = { music: () => sel.tracks.length && playList(sel.tracks, 0), mood: () => setView('mood'), stories: () => setView('story'), podcasts: () => setView('podcast'), sleep: () => setView('sleep'), memories: () => setView('memories'),
+          guess: () => { setQuizMode('song'); setView('quiz'); }, trivia: () => { setQuizMode('trivia'); setView('quiz'); },
+          sing: () => { if (!sel.tracks.length) return; const withLyrics = sel.tracks.filter(t => lyricKeys.has(lyricsKey(t))); const list = withLyrics.length ? withLyrics : sel.tracks; playList(list, 0); go({ full: true, npPanel: 'lyrics' }); } };
+        const needs = e.id === 'music' || e.id === 'mood' || e.id === 'guess' || e.id === 'trivia' || e.id === 'sing' ? (n ? '' : 'Needs music on device') : '';
+        const status = !p.prefs[e.id] ? 'Off in your plan' : needs || (e.id === 'music' ? `${n} songs ready` : e.id === 'mood' ? `${n} songs to choose from` : e.id === 'guess' || e.id === 'trivia' ? 'From your own songs' : e.id === 'sing' ? `${sel.tracks.filter(t => lyricKeys.has(lyricsKey(t))).length} songs with stored lyrics` : e.id === 'memories' ? `${n} memories` : n ? `${n} saved on device` : 'Add files from your device');
+        const on = p.prefs[e.id] && !needs;
+        return <button key={e.id} className={`exp ${on ? 'live' : ''}`} disabled={!on && !(['stories', 'podcasts', 'sleep', 'memories'].includes(e.id) && p.prefs[e.id])} onClick={act[e.id]} aria-label={`${e.label}: ${status}`}>
+          <span className={`exp-art art-${e.id}`} /><b>{e.label}</b><span className="exp-blurb">{e.blurb}</span><small className={on && n ? 'on' : ''}>{status}</small></button>; })}</div>
 
       <h2>Plan</h2>
       <section className="panel plan">
@@ -118,12 +157,20 @@ function PrepareActions({ sel, p, reload }: { sel: ReturnType<typeof selectForJo
   );
 }
 
-function ExperienceTile({ id, label, blurb, milestone, enabled, count, onPlay }: { id: Experience; label: string; blurb: string; milestone: number; enabled: boolean; count?: number; onPlay: () => void }) {
-  const built = id === 'music';
-  const status = !enabled ? 'Off in your plan' : built ? (count ? `${count} songs ready` : 'Needs music on device') : count === 0 ? `Needs content · arrives in step ${milestone}` : `Arrives in step ${milestone}`;
+
+function VerifyPanel({ report, stale, busy, disabled, onRun }: { report?: VerifyReport; stale: boolean; busy: string; disabled: boolean; onRun: () => void }) {
+  const bad = report ? [...report.missing, ...report.corrupt, ...report.unverifiable, ...report.network] : [];
   return (
-    <button className={`exp ${built && enabled ? 'live' : ''}`} disabled={!built || !enabled || !count} onClick={onPlay} aria-label={`${label}: ${status}`}>
-      <span className={`exp-art art-${id}`} /><b>{label}</b><span className="exp-blurb">{blurb}</span><small className={built && count ? 'on' : ''}>{status}</small>
-    </button>
+    <section className="panel verify">
+      <div className="acc-actions"><button className="big" disabled={disabled} onClick={onRun}>{report ? 'Run verification again' : 'Run offline verification'}</button>{busy && <span className="busy"><span className="spin" />{busy}</span>}</div>
+      <p className="empty">Checks every song in the mix: the file exists, can be read, starts like real audio and can be decoded by Android; its length matches; lyrics are stored (if sing-along is on); nothing needs the internet; and free space is not nearly zero.</p>
+      {report && <>
+        <div className={`vres ${report.passed && !stale ? 'pass' : 'fail'}`}><b>{stale ? 'OUT OF DATE' : report.passed ? 'PASSED' : 'NOT PASSED'}</b>
+          <span>{report.ok}/{report.total} files OK · lyrics {report.lyricsCached}/{report.total}{report.lyricsNeeded ? '' : ' (optional)'}{report.freeBytes != null ? ` · ${fmtBytes(report.freeBytes)} free` : ''} · checked {new Date(report.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+        {stale && <p className="errmsg">Your mix or files changed after this check. Run it again before you travel.</p>}
+        {report.reasons.length > 0 && <ul className="blockers">{report.reasons.map(r => <li key={r}>{r}</li>)}</ul>}
+        {bad.length > 0 && <details className="help" open><summary>{bad.length} file problem(s)</summary><div className="list">{bad.slice(0, 30).map(c => <div className="row static" key={c.id}><div className="meta"><b>{c.title}</b><span className="err">{c.status.toUpperCase()} — {c.detail}</span></div></div>)}</div></details>}
+      </>}
+    </section>
   );
 }

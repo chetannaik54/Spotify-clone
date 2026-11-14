@@ -132,7 +132,8 @@ public class PlaybackService extends MediaSessionService {
         @Override public void run() {
             if (player == null) return;
             long now = System.currentTimeMillis();
-            if (sleepAt > 0 && now >= sleepAt) { sleepAt = 0; player.pause(); }
+            if (sleepAt > 0 && now >= sleepAt) { sleepAt = 0; player.pause(); applyVolume(1f); }
+            final float sleepFade = (sleepAt > 0 && sleepAt - now < 30_000) ? Math.max(0f, (sleepAt - now) / 30_000f) : 1f;   // gentle 30 s fade before the timer stops playback
 
             int cf = PlayerPrefs.crossfade(PlaybackService.this);
             long dur = player.getDuration();
@@ -142,8 +143,8 @@ public class PlaybackService extends MediaSessionService {
                 boolean repeatOne = player.getRepeatMode() == Player.REPEAT_MODE_ONE;
                 if (!repeatOne && left < cf) f = Math.max(0f, left / cf);
                 else if (pos < Math.min(cf, 3)) f = Math.min(1f, pos / Math.min(cf, 3));
-                applyVolume(f);
-            } else if (fade != 1f) applyVolume(1f);
+                applyVolume(f * sleepFade);
+            } else if (sleepFade != 1f || fade != 1f) applyVolume(sleepFade);
 
             if (++tickCount % 20 == 0 && player.getMediaItemCount() > 0) {
                 PlayerPrefs.savePosition(PlaybackService.this, player.getCurrentMediaItemIndex(), player.getCurrentPosition());

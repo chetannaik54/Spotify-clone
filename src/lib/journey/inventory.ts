@@ -79,8 +79,13 @@ export type Readiness = { status: 'READY' | 'NOT_READY'; blockers: string[]; per
 export const fmtDur = (sec: number) => { const m = Math.round(sec / 60), hh = Math.floor(m / 60); return hh ? `${hh}h ${m % 60}m` : `${m}m`; };
 export const fmtBytes = (b: number) => b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(b / MB))} MB`;
 
-export function buildChecklist(plan: JourneyPlan, inv: Inventory, sel: Selection, verified: { passed: boolean; at: number } | null, lyricKeys: Set<string> = new Set()): CheckItem[] {
+/** Fingerprint of what a verification covered. If the mix or the files change, the old verification no longer counts. */
+export const selectionSig = (tracks: Track[]) => { let h = 2166136261; for (const t of tracks) { const k = `${t.id}|${t.size ?? 0}|${t.url}`; for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 16777619); } } return `${tracks.length}:${(h >>> 0).toString(36)}`; };
+
+export function buildChecklist(plan: JourneyPlan, inv: Inventory, sel: Selection, verifiedIn: { passed: boolean; at: number; sig?: string; report?: { reasons: string[] } } | null, lyricKeys: Set<string> = new Set()): CheckItem[] {
   const need = plan.hours * 3600, cover = need ? sel.seconds / need : 0;
+  const stale = !!verifiedIn && verifiedIn.sig !== undefined && verifiedIn.sig !== selectionSig(sel.tracks);
+  const verified = stale ? null : verifiedIn;
   const items: CheckItem[] = [];
   if (plan.prefs.music) items.push({
     id: 'music', mandatory: true, label: 'Offline music covers the journey',
@@ -107,7 +112,7 @@ export function buildChecklist(plan: JourneyPlan, inv: Inventory, sel: Selection
     detail: `${inv.imported.total} imported songs · ${inv.imported.availableOffline} stored offline. Imported songs are only usable offline once a licensed, downloadable copy exists.`, level: 'info' });
   items.push({
     id: 'verify', mandatory: true, label: 'Offline playback verified',
-    detail: verified ? (verified.passed ? 'Passed' : 'Failed') : 'Not run yet — file, integrity and playback checks arrive in Milestone 8',
+    detail: stale ? 'Your mix or files changed since the last check — run it again' : verified ? (verified.passed ? `Passed ${new Date(verified.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : `Failed: ${verified.report?.reasons?.[0] ?? 'see details'}`) : 'Not run yet — checks every file, its integrity, lyrics and free space',
     level: verified ? (verified.passed ? 'ok' : 'fail') : 'todo',
   });
   return items;

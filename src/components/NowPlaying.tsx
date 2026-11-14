@@ -3,7 +3,7 @@ import { current, set, step, toggleLike, useStore } from '../lib/store';
 import { EQ_LABELS, seek, setEq, useTime } from '../lib/engine';
 import { fetchLyrics } from '../lib/sources';
 import { parseLrc, type Line } from '../lib/lrc';
-import { go } from '../lib/nav';
+import { getNav, go } from '../lib/nav';
 import { Art, fmt, sleepIn } from './Bits';
 import Icon from './Icon';
 
@@ -25,7 +25,8 @@ export function MiniBar() {
 
 export function NowPlaying() {
   const s = useStore(x => x); const t = current(s); const { cur, dur } = useTime();
-  const [panel, setPanel] = useState<'lyrics' | 'queue' | 'eq' | null>(null);
+  const [panel, setPanel] = useState<'lyrics' | 'queue' | 'eq' | null>(() => getNav().npPanel);
+  useEffect(() => () => { go({ npPanel: null }); }, []);
   useEffect(() => { const f = (e: KeyboardEvent) => e.key === 'Escape' && go({ full: false }); addEventListener('keydown', f); return () => removeEventListener('keydown', f); }, []);
   if (!t) return null;
   const liked = s.liked.some(x => x.id === t.id);

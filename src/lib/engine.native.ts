@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { NativePlayer, type NativeState, type NativeTrack } from './native';
-import { current, getState, hooks, set } from './store';
+import { current, getState, hooks, saveAudioProgress, set } from './store';
 import type { Track } from './types';
 
 const ns = { count: 0, index: -1, playing: false, currentId: '', shuffle: false, repeat: 'off' as 'off' | 'one' | 'all', sleepAt: 0, eq: '' , cf: -1, vol: -1 };
@@ -33,7 +33,8 @@ async function pushQueue() {
   if (!cur) return;
   const keep = ns.count > 0 && ns.currentId === cur.id;
   let pos = 0;
-  if (!keep && !resumeUsed && s.resume && s.resume.track.id === cur.id) pos = s.resume.pos;
+  if (s.startAt && s.startAt.id === cur.id) { pos = s.startAt.pos; set({ startAt: null }); }          // explicit start position (quiz clips, audio-library resume)
+  else if (!keep && !resumeUsed && s.resume && s.resume.track.id === cur.id) pos = s.resume.pos;
   if (!keep) resumeUsed = true;
   if (s.playing && !askedNotif) { askedNotif = true; NativePlayer.requestNotifications().catch(() => {}); }
   quietUntil = Date.now() + 600;
@@ -108,7 +109,7 @@ export function initNative(): () => void {
   subs.push(NativePlayer.addListener('time', t => {
     setTime(t.position, t.duration);
     const tr = current(); const now = Date.now();
-    if (tr && now - lastSave > 5000) { lastSave = now; set({ resume: { track: tr, pos: t.position, dur: t.duration } }); }
+    if (tr && now - lastSave > 5000) { lastSave = now; set({ resume: { track: tr, pos: t.position, dur: t.duration } }); saveAudioProgress(tr, t.position, t.duration); }
   }));
   subs.push(NativePlayer.addListener('error', e => console.warn('native player error:', e.message)));
   const vis = () => { if (document.visibilityState === 'visible') refresh(); };

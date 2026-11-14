@@ -205,6 +205,7 @@ export const downloads = new DownloadManager({
   settings: () => getState().dl, localTracks: () => getState().local,
   registerLocal: (t: Track) => { setStore(s => ({ local: [t, ...s.local.filter(x => x.id !== t.id)] })); mirrorNow(); },
 });
+export const deviceFreeBytes = () => (hasNativeDownloader ? new NativeTransport() : new WebTransport()).freeBytes();
 export function useDownloadJobs(): DownloadJob[] {
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   useEffect(() => { let live = true; const load = () => downloads.jobs().then(j => { if (live) setJobs(j); }); load(); const off = downloads.subscribe(load); return () => { live = false; off(); }; }, []);
