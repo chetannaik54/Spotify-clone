@@ -24,12 +24,17 @@ function sessionBlock() {
   const next = rest.slice(20).search(/\n {4}\S.*\(userId=\d+\)|\nAudio playback|\nSession listeners/);
   return { out, block: out.slice(Math.max(0, start), i + (next > 0 ? next + 20 : 4000)) };
 }
+function uptimeMs() { const v = parseFloat(adb('shell cat /proc/uptime').split(/\s+/)[0]); return Number.isFinite(v) ? v * 1000 : 0; }
 function session() {
   const { out, block: b } = sessionBlock();
   // state renders as "state=PlaybackState {state=3, position=..." (older) or "state=PLAYING(3), position=..." (newer)
   const st = b.match(/state=(?:PlaybackState \{state=)?(?:[A-Z_]+\()?(\d+)\)?, position=(-?\d+)/);
   const md = b.match(/metadata:.*?description=([^\n]*)/);
-  return { found: !!b, state: st ? +st[1] : -1, position: st ? +st[2] : -1, desc: md ? md[1].trim() : '', raw: b, all: out };
+  const tm = b.match(/position=(-?\d+),[^}]*?speed=([\d.]+),\s*updated=(\d+)/);
+  const state = st ? +st[1] : -1; let position = st ? +st[2] : -1;
+  // Android only refreshes PlaybackState on state changes; the live position is position + (now - updated) * speed.
+  if (state === 3 && tm) position = Math.round(+tm[1] + (uptimeMs() - +tm[3]) * +tm[2]);
+  return { found: !!b, state, position, desc: md ? md[1].trim() : '', raw: b, all: out };
 }
 function sessionCount() { return (sessionBlock().out.match(new RegExp(`package=${PKG.replace(/\./g, '\\.')}`, 'g')) || []).length; }
 function debugDump(tag) {
@@ -77,7 +82,7 @@ async function connect() {
   shot('02-scanned');
 
   // ---- 2. play a scanned song through the native service ----
-  await ui.click('.row', 'Tum Hi Ho');
+  await ui.click('.row');   // first song in the list, so "next" has somewhere to go
   const playing = await waitFor(() => { const s = session(); return s.found && s.state === 3 ? s : null; }, 25000);
   if (!playing) debugDump('play');
   pass('native MediaSession exists and is PLAYING', !!playing, playing ? playing.desc : JSON.stringify(session()).slice(0, 200));
