@@ -108,6 +108,19 @@ describe('API robustness', () => {
   it('non-retryable errors surface as SpotifyApiError with status', async () => { api.failNext = { status: 403, times: 1 }; await expect(client.me()).rejects.toBeInstanceOf(SpotifyApiError); });
 });
 
+describe('Spotify 403 on first call (app without Web API access)', () => {
+  it('explains the likely cause instead of a bare "HTTP 403", and keeps the sync record', async () => {
+    api.failNext = { status: 403, times: 99 };
+    await expect(importSpotify(client, cat, {})).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/Web API.*Premium|User Management/s) });
+    expect((await cat.syncs())[0]).toMatchObject({ ok: false }); expect(await auth.isConnected()).toBe(true);   // still signed in; nothing wiped
+  });
+  it('surfaces Spotify\'s own message text when it sends one', async () => {
+    const f = async () => new Response('Forbidden: user not registered in the Developer Dashboard', { status: 403 });
+    const c = new SpotifyClient({ fetch: f as typeof fetch, auth, sleep: async () => {} });
+    await expect(c.me()).rejects.toMatchObject({ status: 403, message: expect.stringContaining('not registered in the Developer Dashboard') });
+  });
+});
+
 describe('sync bookkeeping & disconnect', () => {
   it('records last-synced time and keeps entries removed at the source (flagged, never deleted)', async () => {
     api.playlists = [{ id: 'p', name: 'P', tracks: makeTracks(3) }]; await importSpotify(client, cat, { liked: false, now: () => now });

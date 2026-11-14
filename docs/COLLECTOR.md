@@ -31,3 +31,9 @@ Disconnect removes tokens locally; Spotify has no revocation endpoint, so access
 
 ## Run the tests
 `npm test` (27 unit tests against a fake Spotify server). Browser E2E and device checks are described in the milestone report.
+
+## Evidence log
+| Date | Where | Result |
+|---|---|---|
+| 14 Nov | **Physical tablet** (user screenshot) | Collector tab renders; Spotify sign-in → redirect → token exchange → encrypted storage worked (card shows *Connected*). First data call returned **HTTP 403**: the Spotify app was created without *Web API* (greyed out: requires Premium owner), so tokens are issued but API calls are refused. Not an app defect; error text now explains it. |
+| 14 Nov | Fake Spotify server (unit + browser) | 47 unit tests, 54 browser checks pass. **Simulated.** |

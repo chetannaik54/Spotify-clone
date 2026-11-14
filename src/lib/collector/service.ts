@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Catalogue, idbStores } from './catalogue';
-import { importSpotify } from './importer';
+import { friendly, importSpotify } from './importer';
 import { secureStore } from './secure';
 import { ReauthRequired, SpotifyAuth } from './spotify/auth';
 import { SpotifyClient } from './spotify/client';
@@ -66,7 +66,7 @@ export async function runSpotifyImport(o: { playlists?: boolean; liked?: boolean
     say('spotify', r.errors.length ? 'err' : 'ok', `Imported ${r.playlists} lists · ${r.tracks_added} new songs${r.errors.length ? ` · ${r.errors.length} problem(s), see Sync History` : ''}`);
   } catch (e) {
     if (e instanceof ReauthRequired) { setUi(u => ({ ...u, needsReauth: { ...u.needsReauth, spotify: true } })); await refreshConnection(); }
-    say('spotify', 'err', (e as Error).message);
+    say('spotify', 'err', e instanceof ReauthRequired ? e.message : (e as Error).message.startsWith('Spotify signed you in') ? (e as Error).message : friendly(e));
   } finally { setUi(u => ({ ...u, busy: { ...u.busy, spotify: undefined } })); }
 }
 

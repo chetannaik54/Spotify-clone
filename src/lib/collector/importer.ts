@@ -11,7 +11,9 @@ export type ImportOpts = {
   now?: () => number;
 };
 
-const friendly = (e: unknown) => {
+/** Explain the most common real-world cause when the very first call (profile) is refused after a successful sign-in. */
+export const ACCESS_DENIED_HELP = 'Spotify signed you in but refused to share your data (HTTP 403). This usually means the Spotify developer app does not have "Web API" enabled — Spotify now requires a Premium account for that — or your Spotify account is not listed under the app\'s User Management. Fix it in developer.spotify.com/dashboard, then reconnect.';
+export const friendly = (e: unknown) => {
   if (e instanceof SpotifyApiError) {
     if (e.status === 403) return 'Spotify did not allow reading this item (restricted playlist or API access limit)';
     if (e.status === 404) return 'Not found on Spotify (deleted or private)';
@@ -30,7 +32,9 @@ export async function importSpotify(client: SpotifyClient, cat: Catalogue, opts:
   const rec: SyncRecord = { id: `sync-${started}`, platform: 'spotify', started_at: started, finished_at: started, ok: true, playlists: 0, tracks_added: 0, tracks_updated: 0, errors: [] };
   const wantPlaylists = opts.playlists ?? true, wantLiked = opts.liked ?? true;
   try {
-    const me = await client.me();
+    let me;
+    try { me = await client.me(); }
+    catch (e) { if (e instanceof SpotifyApiError && e.status === 403) throw new SpotifyApiError(403, `${ACCESS_DENIED_HELP}${e.message && !/^HTTP/.test(e.message) ? ` (Spotify said: ${e.message})` : ''}`); throw e; }
     const prevAcc = await cat.account('spotify');
     await cat.setAccount({ platform: 'spotify', user_id: me.id, display_name: me.display_name || me.id, connected_at: prevAcc?.connected_at ?? started, last_synced_at: prevAcc?.last_synced_at ?? null });
 

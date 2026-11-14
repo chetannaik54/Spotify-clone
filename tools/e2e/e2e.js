@@ -94,6 +94,7 @@ async function connect() {
   pass(`screen locked ${LOCK_SECONDS}s: still PLAYING, position advanced`, l2.state === 3 && l2.position - l1.position > (LOCK_SECONDS - 10) * 1000, `${l1.position}→${l2.position} ms`);
 
   // ---- 4. media buttons (Bluetooth headset / lock-screen equivalent) ----
+  adb('shell input keyevent KEYCODE_WAKEUP'); adb('shell wm dismiss-keyguard'); await sleep(1500);   // keys are only routed reliably with the screen on
   const before = session().desc;
   adb('shell input keyevent KEYCODE_MEDIA_NEXT'); await sleep(2500);
   const afterNext = session();

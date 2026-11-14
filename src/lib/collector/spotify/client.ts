@@ -38,7 +38,13 @@ export class SpotifyClient {
         await this.sleep(ra * 1000); continue;
       }
       if (r.status >= 500 && attempt < this.max) { await this.sleep(500 * 2 ** attempt); continue; }
-      let msg = r.statusText; try { msg = (await r.json() as { error?: { message?: string } }).error?.message ?? msg; } catch { /* ignore */ }
+      // keep whatever Spotify said (JSON error object, OAuth-style error, or plain text) so the UI can explain it
+      let msg = r.statusText;
+      try {
+        const raw = await r.text();
+        try { const j = JSON.parse(raw) as { error?: { message?: string } | string; error_description?: string; message?: string }; msg = (typeof j.error === 'object' ? j.error?.message : j.error_description ?? j.error) ?? j.message ?? raw; }
+        catch { msg = raw.trim().slice(0, 200) || msg; }
+      } catch { /* ignore */ }
       throw new SpotifyApiError(r.status, msg || `HTTP ${r.status}`);
     }
   }
