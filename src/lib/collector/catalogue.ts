@@ -55,7 +55,7 @@ export class Catalogue {
     const playlist: ImportedPlaylist = {
       id: pid, user_id: userId, source_platform: platform, source_playlist_id: pl.source_playlist_id, kind: pl.kind, name: pl.name,
       artwork_url: pl.artwork_url, owner: pl.owner, total: pl.total, entries: [...entries, ...removed], snapshot_id: pl.snapshot_id,
-      selected: prev?.selected ?? true, imported_at: prev?.imported_at ?? now, updated_at: now, last_error: null,
+      custom_name: prev?.custom_name, selected: prev?.selected ?? true, imported_at: prev?.imported_at ?? now, updated_at: now, last_error: null,
     };
     await this.s.playlists.put(pid, playlist);
     this.emit();
@@ -71,6 +71,7 @@ export class Catalogue {
     this.emit();
   }
 
+  async renamePlaylist(pid: string, name: string) { const p = await this.s.playlists.get(pid); if (p) { await this.s.playlists.put(pid, { ...p, custom_name: name.trim() || undefined }); this.emit(); } }
   async setSelected(pid: string, selected: boolean) { const p = await this.s.playlists.get(pid); if (p) { await this.s.playlists.put(pid, { ...p, selected }); this.emit(); } }
   async playlists(platform?: Platform) { return (await this.s.playlists.all()).filter(p => !platform || p.source_platform === platform).sort((a, b) => (a.kind === 'liked' ? -1 : 0) - (b.kind === 'liked' ? -1 : 0) || a.name.localeCompare(b.name)); }
   async tracks(platform?: Platform) { return (await this.s.tracks.all()).filter(t => !platform || t.source_platform === platform); }

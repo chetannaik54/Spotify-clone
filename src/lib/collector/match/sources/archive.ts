@@ -1,4 +1,5 @@
 import type { Candidate, MatchQuery, MatchSource } from '../types';
+import { titleSimilarity } from '../normalize';
 
 type Doc = { identifier: string; title?: string | string[]; creator?: string | string[]; licenseurl?: string };
 type IaFile = { name: string; format?: string; size?: string; length?: string; bitrate?: string; source?: string };
@@ -21,7 +22,9 @@ export class ArchiveSource implements MatchSource {
     const r = await this.d.fetch(url, { signal }); if (!r.ok) throw new Error(`Internet Archive HTTP ${r.status}`);
     const docs = ((await r.json()) as { response?: { docs?: Doc[] } }).response?.docs ?? [];
     const out: Candidate[] = [];
-    for (const doc of docs.slice(0, this.d.maxItems ?? 6)) {
+    // only look closer at hits whose title plausibly matches (saves a metadata request per irrelevant hit)
+    const plausible = docs.filter(d => !first(d.title) || titleSimilarity(q.title, first(d.title)) >= 0.6);   // no title = can't judge, keep it
+    for (const doc of plausible.slice(0, this.d.maxItems ?? 4)) {
       try {
         const mr = await this.d.fetch(`https://archive.org/metadata/${encodeURIComponent(doc.identifier)}`, { signal }); if (!mr.ok) continue;
         const m = await mr.json() as { files?: IaFile[]; metadata?: Record<string, unknown>; is_dark?: boolean };

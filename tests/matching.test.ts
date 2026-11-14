@@ -72,7 +72,7 @@ describe('Jamendo source & download permission', () => {
 });
 
 describe('Internet Archive source & download permission', () => {
-  const ia = (items: Record<string, { md: Record<string, unknown>; files: unknown[]; dark?: boolean }>) => new ArchiveSource({ fetch: (async (u: string) => {
+  const ia = (items: Record<string, { md: Record<string, unknown>; files: unknown[]; dark?: boolean }>) => new ArchiveSource({ maxItems: 10, fetch: (async (u: string) => {
     const url = String(u); if (url.includes('advancedsearch')) return res({ response: { docs: Object.keys(items).map(identifier => ({ identifier })) } });
     const id = decodeURIComponent(url.split('/metadata/')[1]); const it = items[id]; return res({ metadata: { identifier: id, ...it.md }, files: it.files, is_dark: it.dark });
   }) as unknown as typeof fetch });
@@ -191,5 +191,73 @@ describe('match pipeline', () => {
     await cat.importPlaylist('spotify', 'user-private-id', { source_playlist_id: 'p', kind: 'playlist', name: 'My Secret Breakup Playlist', artwork_url: '', owner: 'Chetan', total: 1, snapshot_id: null }, [{ source_track_id: 'zz', song_title: 'Gerua', artist_name: 'Arijit Singh', album_name: 'Dilwale', artwork_url: '', duration_ms: 1, source_url: '', import_status: 'imported' }]);
     const seen: string[] = []; const j = new JamendoSource({ clientId: 'k', fetch: (async (u: string) => { seen.push(String(u)); return res({ headers: { status: 'success' }, results: [] }); }) as unknown as typeof fetch });
     await matchMany(cat, [(await cat.s.tracks.get('spotify:zz'))!], { sources: [j] }); expect(seen.join()).toContain('Gerua'); expect(seen.join()).not.toMatch(/Secret|Breakup|Chetan|user-private/);
+  });
+});
+
+// ---------- Milestone 3 follow-up: names, ordering, summary, report, scale ----------
+import { cleanPlaylistName, displayName } from '../src/lib/collector/playlistNames';
+import { buildReport, orderedTracks, summarise } from '../src/lib/collector/match/report';
+import { parseCsvPlaylist } from '../src/lib/collector/csv';
+import { importCsvFiles } from '../src/lib/collector/importer';
+
+describe('playlist display names', () => {
+  it('cleans file names into readable titles', () => {
+    expect(cleanPlaylistName('swarify bollywood 90s 2000s test fixed.csv')).toBe('Swarify Bollywood 90s 2000s');
+    expect(cleanPlaylistName('Road_Trip_Hits (1).csv')).toBe('Road Trip Hits');
+    expect(cleanPlaylistName('my-playlist_final_v2.CSV')).toBe('My Playlist');
+    expect(cleanPlaylistName('test.csv')).toBe('Test');              // never ends up empty
+    expect(cleanPlaylistName('Arijit Singh Best.csv')).toBe('Arijit Singh Best');
+  });
+  it('a user rename always wins; API playlists are left alone', () => {
+    expect(displayName({ name: 'swarify_test_fixed', source_platform: 'csv', custom_name: 'My 90s' })).toBe('My 90s');
+    expect(displayName({ name: 'swarify_test_fixed', source_platform: 'csv' })).toBe('Swarify');
+    expect(displayName({ name: 'Road Trip (test)', source_platform: 'spotify' })).toBe('Road Trip (test)');
+  });
+  it('CSV import stores the clean name, a stable id, no redundant owner, and a rename survives re-import', async () => {
+    const c = new Catalogue(memoryStores()); const csv = 'Track Name,Artist Name(s)\r\nA,B\r\n';
+    await importCsvFiles(c, [{ name: 'swarify_bollywood_90s_test_fixed.csv', text: csv }]);
+    const p = (await c.playlists('csv'))[0]; expect(p.name).toBe('Swarify Bollywood 90s'); expect(p.owner).toBe(''); expect(p.id).toBe('csv:file-swarify bollywood 90s test fixed');
+    await c.renamePlaylist(p.id, '90s Hits'); await importCsvFiles(c, [{ name: 'swarify_bollywood_90s_test_fixed.csv', text: csv + 'C,D\r\n' }]);
+    const q = (await c.playlists('csv'))[0]; expect(displayName(q)).toBe('90s Hits'); expect((await c.playlists('csv')).length).toBe(1);
+  });
+});
+
+describe('original playlist order is preserved in matching views', () => {
+  it('lists songs in playlist position order, playlist by playlist, each song once', async () => {
+    const c = new Catalogue(memoryStores()); const mk = (n: string) => ({ source_track_id: n, song_title: n, artist_name: 'a', album_name: '', artwork_url: '', duration_ms: 1, source_url: '', import_status: 'imported' as const });
+    await c.importPlaylist('spotify', 'u', { source_playlist_id: 'p1', kind: 'playlist', name: 'P1', artwork_url: '', owner: '', total: 3, snapshot_id: null }, ['zeta', 'alpha', 'mid'].map(mk));
+    await c.importPlaylist('spotify', 'u', { source_playlist_id: 'p2', kind: 'playlist', name: 'P2', artwork_url: '', owner: '', total: 3, snapshot_id: null }, ['mid', 'beta', 'omega'].map(mk));
+    const pls = await c.playlists('spotify'), tr = await c.tracks();
+    expect(orderedTracks(pls, tr).map(o => o.track.song_title)).toEqual(['zeta', 'alpha', 'mid', 'beta', 'omega']);          // not alphabetical, no duplicate 'mid'
+    expect(orderedTracks(pls, tr, 'spotify:p2').map(o => `${o.position}:${o.track.song_title}`)).toEqual(['1:mid', '2:beta', '3:omega']);
+  });
+});
+
+describe('50-song run (SIMULATED sources, realistic shape) — summary, report and request volume', () => {
+  const titles = ['Pehla Nasha', 'Yeh Kaali Kaali Aankhen', 'Baazigar O Baazigar', 'Chura Ke Dil Mera', 'Tu Cheez Badi Hai Mast Mast', 'Tip Tip Barsa Paani', 'Mera Dil Bhi Kitna Pagal Hai', 'Bahut Pyaar Karte Hain', 'Dhak Dhak Karne Laga', 'Nazar Ke Samne'];
+  const csv = 'Track Name,Artist Name(s),Album Name,Duration (ms)\r\n' + Array.from({ length: 50 }, (_, i) => `${titles[i % 10]}${i >= 10 ? ' ' + Math.floor(i / 10) : ''},Kumar Sanu;Alka Yagnik,Album ${i % 7},${240000 + (i % 9) * 3000}`).join('\r\n');
+  it('commercial back-catalogue mostly has no free download: honest unavailable counts, order intact, report complete', async () => {
+    const c = new Catalogue(memoryStores()); await importCsvFiles(c, [{ name: '90s.csv', text: csv }]);
+    const tracks = await c.tracks(); expect(tracks.length).toBe(50);
+    let calls = 0;
+    // a catalogue that knows 3 songs: one exact+downloadable, one exact with no license, one cover only
+    const src: MatchSource = { id: 'archive', name: 'a', search: async q => { calls++; const t = q.title;
+      if (t === 'Pehla Nasha') return [C('Pehla Nasha', 'Kumar Sanu', { album: 'Album 0', duration_ms: q.duration_ms })];
+      if (t === 'Tip Tip Barsa Paani') return [C('Tip Tip Barsa Paani', 'Kumar Sanu', { duration_ms: q.duration_ms, download: { permitted: false, verified: true, reason: 'No explicit open license' } })];
+      if (t === 'Chura Ke Dil Mera') return [C('Chura Ke Dil Mera (Cover)', 'Someone Else')]; return []; } };
+    const r = await matchMany(c, tracks, { sources: [src], concurrency: 2 }); expect(r).toMatchObject({ total: 50, done: 50, failed: 0 }); expect(calls).toBe(50);
+    const pls = await c.playlists(); const ordered = orderedTracks(pls, await c.tracks()); expect(ordered.length).toBe(50); expect(ordered[0].track.song_title).toBe('Pehla Nasha'); expect(ordered[49].position).toBe(50);
+    const s = summarise(ordered.map(o => o.track), await c.matches());
+    // two titles exist verbatim; the cover by an unrelated artist scores <40 and is not even listed; the rest have nothing
+    expect(s).toMatchObject({ total: 50, exact: 2, possible: 0, review: 0, unavailable: 48, downloadable: 1, onDevice: 0, unsearched: 0 });
+    const rep = buildReport(ordered, await c.matches()).split('\n'); expect(rep.length).toBe(51); expect(rep[0]).toContain('Best match'); expect(rep[1]).toContain('Pehla Nasha');
+  });
+});
+
+describe('Internet Archive prefilter', () => {
+  it('only opens metadata for plausibly matching titles (saves requests)', async () => {
+    const urls: string[] = [];
+    const s = new ArchiveSource({ fetch: (async (u: string) => { urls.push(String(u)); if (String(u).includes('advancedsearch')) return res({ response: { docs: [{ identifier: 'good', title: 'Tum Hi Ho' }, { identifier: 'junk1', title: 'Completely Different Podcast' }, { identifier: 'junk2', title: 'Another Thing' }] } }); return res({ metadata: { title: 'Tum Hi Ho' }, files: [] }); }) as unknown as typeof fetch });
+    await s.search(Q('Tum Hi Ho', 'Arijit Singh')); expect(urls.filter(u => u.includes('/metadata/')).map(u => u.split('/metadata/')[1])).toEqual(['good']);
   });
 });

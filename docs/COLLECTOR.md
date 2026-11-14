@@ -76,3 +76,11 @@ Imported songs are matched to recordings you can legitimately keep. **Downloadin
 | 66 browser checks of the real Matching screen at 3 sizes | **Simulated** |
 | Real Jamendo / Internet Archive / SoundCloud responses | **NOT tested** (hosts unreachable from the build environment; SoundCloud API access for new apps is restricted) |
 | Matching on the physical tablet | **NOT tested** |
+
+### Matching follow-up (CSV playlist test on the tablet)
+- **Verified on the physical tablet (user screenshot):** a 50-song CSV (90s/2000s Bollywood) imports correctly, in order.
+- Matching runs in original playlist order, with a playlist picker; summary tiles (Exact / Possible / Unavailable / Downloadable / On device); one clear action **Find Available Downloads**; **Download eligible (N)** is shown but disabled — nothing downloads before review and the downloader (Milestone 4) exists.
+- Playlist names: file-name noise removed (`swarify_bollywood_90s_2000s_test_fixed.csv` → “Swarify Bollywood 90s 2000s”), one small source pill instead of repeated “CSV file · CSV file”, and a ✎ rename that survives re-imports.
+- **Copy results** puts the real outcome (ordered CSV with confidence, source, permission and reason per song) on the clipboard so it can be shared and analysed.
+- **Expectation:** commercial 90s Bollywood is rarely freely licensed. Expect mostly *Unavailable* from Jamendo / Internet Archive / SoundCloud; matches against files already on the device are the most likely hits.
+- Real-catalogue results for this playlist: **not yet obtained** (needs a run on the tablet with a Jamendo client ID).

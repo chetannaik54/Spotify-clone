@@ -35,6 +35,7 @@ export type ImportedPlaylist = {
   source_playlist_id: string;
   kind: 'playlist' | 'liked';
   name: string;
+  custom_name?: string;          // user rename; survives re-imports
   artwork_url: string;
   owner: string;
   total: number;                 // total reported by the source

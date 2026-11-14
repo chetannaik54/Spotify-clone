@@ -2,17 +2,18 @@ import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { confirmMatch, confirmSelectedMatches, catalogue, giveMatchConsent, hasMatchConsent, rejectMatch, retryFailedMatches, runMatching, skipTrack, skipUnavailable, stopMatching, useCollectorUi } from '../lib/collector/service';
 import type { MatchRecord, ScoredCandidate } from '../lib/collector/match/types';
-import type { ImportedTrack } from '../lib/collector/types';
+import type { ImportedPlaylist, ImportedTrack } from '../lib/collector/types';
+import { displayName } from '../lib/collector/playlistNames';
+import { buildReport, eligible as eligibleCand, orderedTracks, summarise } from '../lib/collector/match/report';
 import { set, useStore } from '../lib/store';
 import { Art, fmt } from './Bits';
 
 const PLAT: Record<string, string> = { spotify: 'Spotify', youtube: 'YouTube', csv: 'CSV' };
 const SRC: Record<string, string> = { local: 'This device', jamendo: 'Jamendo', archive: 'Internet Archive', soundcloud: 'SoundCloud' };
 type Filter = 'all' | 'exact' | 'possible' | 'free' | 'downloaded' | 'none' | 'review';
-const FILTERS: [Filter, string][] = [['all', 'All tracks'], ['exact', 'Exact matches'], ['possible', 'Possible matches'], ['free', 'Free downloads available'], ['downloaded', 'Already downloaded'], ['none', 'No match'], ['review', 'Manual review']];
+const FILTERS: [Filter, string][] = [['all', 'All tracks'], ['exact', 'Exact matches'], ['possible', 'Possible matches'], ['free', 'Free downloads available'], ['downloaded', 'Already downloaded'], ['none', 'Unavailable'], ['review', 'Manual review']];
 
-/** A download is only advertised for a recording we would actually accept: not a cover/remix/other artist, not a preview, not a manual-review match. */
-const eligible = (c: ScoredCandidate) => c.download.permitted && !c.download.local && c.band !== 'review' && !c.flags.some(f => /^Different|Preview/.test(f));
+const eligible = eligibleCand;
 function passes(f: Filter, t: ImportedTrack, r?: MatchRecord) {
   const best = r?.candidates[0]; const sel = r?.candidates.find(c => c.key === r.selected);
   switch (f) {
@@ -21,15 +22,19 @@ function passes(f: Filter, t: ImportedTrack, r?: MatchRecord) {
     case 'possible': return t.matching_status === 'possible_match' && best?.band === 'likely';
     case 'free': return sel ? sel.download.permitted && !sel.download.local : !!r?.candidates.some(eligible);
     case 'downloaded': return t.matching_status === 'downloaded';
-    case 'none': return t.matching_status === 'no_match' || t.matching_status === 'failed';
+    case 'none': return t.matching_status === 'no_match' || t.matching_status === 'failed' || t.matching_status === 'unavailable';   // same set as the Unavailable tile
     case 'review': return t.matching_status === 'possible_match' && !sel && best?.band === 'review';
   }
 }
 
-export default function Matching({ tracks, matches }: { tracks: ImportedTrack[]; matches: MatchRecord[] }) {
+export default function Matching({ tracks, matches, playlists }: { tracks: ImportedTrack[]; matches: MatchRecord[]; playlists: ImportedPlaylist[] }) {
   const ui = useCollectorUi(); const jamendoId = useStore(s => s.jamendoId); const scId = useStore(s => s.soundcloudId); const srcOn = useStore(s => s.matchSources);
   const [filter, setFilter] = useState<Filter>('all'); const [sel, setSel] = useState<Set<string>>(new Set()); const [open, setOpen] = useState<string | null>(null); const [limit, setLimit] = useState(60); const [consent, setConsent] = useState(false);
-  const songs = useMemo(() => tracks.filter(t => t.import_status === 'imported' || t.matching_status === 'unavailable' && t.import_status !== 'not_music' && t.import_status !== 'unavailable'), [tracks]);
+  const [plId, setPlId] = useState<string>(''); const [copied, setCopied] = useState('');
+  const ordered = useMemo(() => orderedTracks(playlists, tracks, plId || undefined).filter(o => o.track.import_status === 'imported'), [playlists, tracks, plId]);   // original playlist order
+  const songs = useMemo(() => ordered.map(o => o.track), [ordered]);
+  const posOf = useMemo(() => new Map(ordered.map(o => [o.track.id, o.position])), [ordered]);
+  const sum = useMemo(() => summarise(songs, matches), [songs, matches]);
   const rec = useMemo(() => new Map(matches.map(m => [m.track_id, m])), [matches]);
   const shown = useMemo(() => songs.filter(t => passes(filter, t, rec.get(t.id))), [songs, filter, rec]);
   const count = (f: Filter) => songs.filter(t => passes(f, t, rec.get(t.id))).length;
@@ -38,6 +43,11 @@ export default function Matching({ tracks, matches }: { tracks: ImportedTrack[];
   const toggle = (id: string) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   return (
     <section className="panel match">
+      <div className="sum-grid" aria-label="Matching summary">
+        <div className="sum"><b>{sum.exact}</b><span>Exact</span></div><div className="sum"><b>{sum.possible + sum.review}</b><span>Possible</span></div>
+        <div className="sum"><b>{sum.unavailable}</b><span>Unavailable</span></div><div className="sum good"><b>{sum.downloadable}</b><span>Downloadable</span></div><div className="sum"><b>{sum.onDevice}</b><span>On device</span></div>
+      </div>
+      {playlists.filter(p => p.entries.length).length > 1 && <label className="field plsel">Playlist <select value={plId} onChange={e => { setPlId(e.target.value); setLimit(60); }}><option value="">All playlists (original order)</option>{playlists.filter(p => p.entries.length).map(p => <option key={p.id} value={p.id}>{displayName(p)}</option>)}</select></label>}
       <div className="chips">{FILTERS.map(([f, l]) => <button key={f} className={`chip ${filter === f ? 'sel' : ''}`} onClick={() => { setFilter(f); setLimit(60); }}>{l} <small>{count(f)}</small></button>)}</div>
 
       <details className="help"><summary>Sources &amp; privacy</summary>
@@ -51,17 +61,20 @@ export default function Matching({ tracks, matches }: { tracks: ImportedTrack[];
         </div></details>
 
       <div className="acc-actions">
-        {m.running ? <button className="chip danger" onClick={stopMatching}>Stop</button> : <button className="big" disabled={!songs.length} onClick={start}>Find all matches</button>}
+        {m.running ? <button className="chip danger" onClick={stopMatching}>Stop</button> : <button className="big" disabled={!songs.length} onClick={start}>Find Available Downloads</button>}
         <button className="chip" disabled={m.running || !sel.size} onClick={async () => { await confirmSelectedMatches([...sel]); setSel(new Set()); }}>Confirm selected ({sel.size})</button>
         <button className="chip" disabled={m.running || !count('none')} onClick={retryFailedMatches}>Retry failed</button>
         <button className="chip" disabled={m.running || !count('none')} onClick={skipUnavailable}>Skip unavailable</button>
-        <button className="chip" disabled title="Downloads arrive in the next milestone">Download all eligible</button>
+        <button className="chip" disabled title="Nothing is downloaded until you have reviewed the results. The downloader arrives in the next step.">Download eligible ({sum.downloadable})</button>
+        <button className="chip" disabled={!songs.length} onClick={async () => { const txt = buildReport(ordered, matches); try { await navigator.clipboard.writeText(txt); setCopied(`Copied ${ordered.length} rows — paste them anywhere to share the real results`); } catch { setCopied('Copy failed — your browser blocked clipboard access'); } }}>Copy results</button>
       </div>
+      {copied && <p className="okmsg">{copied}</p>}
+      <p className="empty">Nothing is downloaded automatically. Review the results first — a download is only offered where the source itself permits it.</p>
       {m.running && <div className="meter"><i style={{ width: `${pct}%` }} /></div>}
       {(m.running || m.note) && <p className="busy">{m.running && <span className="spin" />}{m.running ? `Matching “${m.progress?.current ?? ''}” (${m.progress?.done ?? 0}/${m.progress?.total ?? 0})` : m.note}</p>}
       {!songs.length && <p className="empty">Import a playlist first — matching works on the songs in your imported playlists.</p>}
 
-      <div className="list">{shown.slice(0, limit).map(t => <MatchRow key={t.id} t={t} r={rec.get(t.id)} open={open === t.id} checked={sel.has(t.id)} onCheck={() => toggle(t.id)} onOpen={() => setOpen(open === t.id ? null : t.id)} />)}
+      <div className="list">{shown.slice(0, limit).map(t => <MatchRow key={t.id} t={t} pos={plId ? posOf.get(t.id) : undefined} r={rec.get(t.id)} open={open === t.id} checked={sel.has(t.id)} onCheck={() => toggle(t.id)} onOpen={() => setOpen(open === t.id ? null : t.id)} />)}
         {shown.length > limit && <button className="chip" onClick={() => setLimit(limit + 60)}>Show more ({shown.length - limit})</button>}</div>
       {consent && createPortal(
         <div className="modal-bg" onClick={() => setConsent(false)}><div className="modal" role="dialog" aria-label="Before searching" onClick={e => e.stopPropagation()}>
@@ -77,11 +90,12 @@ export default function Matching({ tracks, matches }: { tracks: ImportedTrack[];
 }
 
 const confClass = (c: number) => (c >= 95 ? 'c-exact' : c >= 80 ? 'c-likely' : 'c-review');
-function MatchRow({ t, r, open, checked, onCheck, onOpen }: { t: ImportedTrack; r?: MatchRecord; open: boolean; checked: boolean; onCheck: () => void; onOpen: () => void }) {
+function MatchRow({ t, pos, r, open, checked, onCheck, onOpen }: { t: ImportedTrack; pos?: number; r?: MatchRecord; open: boolean; checked: boolean; onCheck: () => void; onOpen: () => void }) {
   const best = r?.candidates.find(c => c.key === r.selected) ?? r?.candidates[0];
   return (
     <div className={`m-row ${open ? 'open' : ''}`}>
       <div className="row" onClick={onOpen}>
+        {pos != null && <span className="idx">{pos}</span>}
         <input type="checkbox" aria-label="Select" checked={checked} onClick={e => e.stopPropagation()} onChange={onCheck} />
         <Art src={t.artwork_url} title={t.song_title} cls="row-art" />
         <div className="meta"><b>{t.song_title}</b><span>{t.artist_name || t.channel || 'Unknown artist'} · {PLAT[t.source_platform]}</span>

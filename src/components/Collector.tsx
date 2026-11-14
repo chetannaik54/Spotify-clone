@@ -7,10 +7,11 @@ import { SPOTIFY_SCOPES } from '../lib/collector/spotify/auth';
 import type { ImportedPlaylist, ImportedTrack, MatchingStatus } from '../lib/collector/types';
 import { Art, fmt } from './Bits';
 import Matching from './Matching';
+import { displayName } from '../lib/collector/playlistNames';
 import Icon from './Icon';
 
 const when = (t?: number | null) => (t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Never');
-const PLATFORM: Record<string, string> = { spotify: 'Spotify', youtube: 'YouTube', csv: 'CSV file' };
+const PLATFORM: Record<string, string> = { spotify: 'Spotify', youtube: 'YouTube', csv: 'CSV' };
 const LABEL: Record<MatchingStatus, string> = { pending_match: 'Not matched yet', matched: 'Matched', possible_match: 'Possible match', no_match: 'No match', download_permitted: 'Download permitted', downloading: 'Downloading', downloaded: 'Downloaded', unavailable: 'Unavailable', failed: 'Failed' };
 
 export default function Collector() {
@@ -37,7 +38,7 @@ export default function Collector() {
       <h2>Liked songs <small className="count">{likedLists.reduce((n, p) => n + p.entries.filter(e => !e.removed_at).length, 0)}</small></h2>
       {likedLists.length ? likedLists.map(l => <PlaylistRow key={l.id} p={l} rev={rev} open={open === l.id} onToggle={() => setOpen(open === l.id ? null : l.id)} />) : <p className="empty">Import your Spotify liked songs or YouTube liked videos to see them here.</p>}
 
-      <h2>Music matching</h2><Matching tracks={data.tracks} matches={data.matches} />
+      <h2>Music matching</h2><Matching tracks={data.tracks} matches={data.matches} playlists={data.playlists} />
       <h2>Download manager</h2>
       <section className="panel"><p className="empty">Downloads are not enabled yet. When they are, only recordings whose source explicitly permits downloading will be offered, and nothing downloads without your approval.</p>
         <div className="scan"><button className="chip" disabled>Download all eligible</button></div></section>
@@ -108,8 +109,9 @@ function PlaylistRow({ p, open, onToggle, rev }: { p: ImportedPlaylist; open: bo
     <div className="pl-block">
       <div className="row" onClick={onToggle}>
         <Art src={p.artwork_url} title={p.name} cls="row-art" />
-        <div className="meta"><b>{p.name}</b><span>{p.kind === 'liked' ? `${PLATFORM[p.source_platform]} liked` : `${PLATFORM[p.source_platform]}${p.owner ? ` · ${p.owner}` : ''}`} · {n}{p.total && p.total !== n ? ` of ${p.total}` : ''} songs · imported {when(p.imported_at)}</span>
+        <div className="meta"><b>{displayName(p)}</b><span><i className={`src-pill sp-${p.source_platform}`}>{p.kind === 'liked' ? `${PLATFORM[p.source_platform]} liked` : PLATFORM[p.source_platform]}</i> {n}{p.total && p.total !== n ? ` of ${p.total}` : ''} songs · {p.owner ? `${p.owner} · ` : ''}imported {when(p.imported_at)}</span>
           {p.last_error && <span className="err">{p.last_error}</span>}</div>
+        <button className="ic" aria-label="Rename playlist" title="Rename" onClick={e => { e.stopPropagation(); const n = prompt('Playlist name', displayName(p)); if (n !== null) catalogue.renamePlaylist(p.id, n); }}>✎</button>
         {p.kind === 'playlist' && <label className="sel-box" onClick={e => e.stopPropagation()}><input type="checkbox" checked={p.selected} onChange={e => catalogue.setSelected(p.id, e.target.checked)} /> Sync</label>}
         <Icon n="down" size={20} />
       </div>

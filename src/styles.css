@@ -275,3 +275,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 .why{color:var(--mut);font-size:12.5px;margin:4px 0;overflow-wrap:anywhere}.flags{display:flex;flex-direction:column;gap:2px;color:var(--gold);font-size:12.5px;margin:4px 0}
 a.chip{text-decoration:none;color:inherit}
 @media(max-width:599px){.cmp{grid-template-columns:1fr}.m-row .pill-s{display:none}}
+.src-pill{font-style:normal;font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--glass2);color:var(--mut);margin-right:4px}
+.src-pill.sp-spotify{background:#14532d;color:#86efac}.src-pill.sp-youtube{background:#4c1d1d;color:#fca5a5}.src-pill.sp-csv{background:#3b1d6b;color:#d8b4fe}
+.sum-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px;margin-bottom:12px}
+.sum{display:flex;flex-direction:column;align-items:center;padding:10px 6px;border-radius:14px;background:var(--glass2);border:1px solid var(--line)}.sum b{font-size:24px}.sum span{font-size:11.5px;color:var(--mut)}.sum.good{border-color:#4ade80}.sum.good b{color:#86efac}
+.plsel select{display:block;width:100%;margin-top:6px;padding:10px 12px;border-radius:12px;background:#0006;border:1px solid var(--line);color:#fff;font-size:14px}.plsel select option{color:#000}
