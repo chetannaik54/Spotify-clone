@@ -1,4 +1,5 @@
-import { artistSimilarity, baseTitle, levRatio, titleSimilarity, versionTags } from './normalize';
+import { artistSimilarity, baseTitle, levRatio, splitArtists, titleSimilarity, versionTags } from './normalize';
+const splitArtistsEmpty = (a: string) => splitArtists(a).length === 0;
 import type { Band, Candidate, MatchQuery, ScoredCandidate } from './types';
 
 export const EXACT = 95, LIKELY = 80, MIN_KEPT = 40;
@@ -29,7 +30,7 @@ export function scoreCandidate(q: MatchQuery, c: Candidate, sourceRawTitle = q.t
   if (extra.length) { flags.push(`Different version: ${extra.join(', ')}`); score *= 0.7; cap = Math.min(cap, 79); }
   if (missing.length) { flags.push(`Original is a ${missing.join(', ')} version`); cap = Math.min(cap, 79); }
   if (artist !== null && artist < 0.5) { flags.push('Different artist'); score *= 0.75; cap = Math.min(cap, 79); }
-  if (artist === null) { flags.push('Original artist unknown — please confirm'); cap = Math.min(cap, 89); }
+  if (artist === null) { flags.push(splitArtistsEmpty(q.artist) ? 'Original artist unknown — please confirm' : 'File has no artist tag — please confirm'); cap = Math.min(cap, 89); }
   if (title < 0.8) cap = Math.min(cap, 79);
   if (dur !== null && Math.abs(c.duration_ms - q.duration_ms) > 20000) { flags.push(`Duration differs by ${Math.round(Math.abs(c.duration_ms - q.duration_ms) / 1000)} s`); cap = Math.min(cap, 79); }
   if (!c.full_length) { flags.push('Preview only'); cap = Math.min(cap, 79); }

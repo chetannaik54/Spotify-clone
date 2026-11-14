@@ -261,3 +261,17 @@ describe('Internet Archive prefilter', () => {
     await s.search(Q('Tum Hi Ho', 'Arijit Singh')); expect(urls.filter(u => u.includes('/metadata/')).map(u => u.split('/metadata/')[1])).toEqual(['good']);
   });
 });
+
+describe('untagged / site-stamped local files (real-world dhunming-style names)', () => {
+  const q = Q('Sochta Hoon Ke Woh Kitne Masoom The', 'Kumar Sanu', 'Dil Hai Ke Manta Nahin', 300000);
+  const file = (o: Partial<Candidate> = {}) => C('Sochta Hoon Keh Woh Kitne Masoom Teh (Complete Original Recording) | www.dhunming.com', '', { duration_ms: 302000, ...o });
+  it('website suffix and "(Complete Original Recording)" are ignored in the title', () => {
+    expect(baseTitle('Sochta Hoon Keh Woh Kitne Masoom Teh (Complete Original Recording) | www.dhunming.com')).toBe('sochta hoon keh woh kitne masoom teh');
+    expect(baseTitle('Tum Hi Ho www.songs.pk')).toBe('tum hi ho');
+  });
+  it('a missing artist tag is "unknown", not a mismatch: the file is a likely match to confirm, never "different artist"', () => {
+    const s = scoreCandidate(q, file()); expect(s.flags.join()).not.toMatch(/Different artist/); expect(s.flags.join()).toMatch(/no artist tag/); expect(s.confidence).toBeGreaterThanOrEqual(80); expect(s.confidence).toBeLessThanOrEqual(89); expect(s.band).toBe('likely');
+  });
+  it('a clearly wrong artist is still a mismatch when the file IS tagged', () => { expect(scoreCandidate(q, file({ artist: 'Some Other Singer' })).flags).toContain('Different artist'); });
+  it('a different song with no tags is not matched', () => { expect(scoreCandidate(q, C('Totally Different Song | www.dhunming.com', '', { duration_ms: 302000 })).confidence).toBeLessThan(60); });
+});

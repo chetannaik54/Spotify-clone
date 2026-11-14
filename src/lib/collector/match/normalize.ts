@@ -23,6 +23,8 @@ export function versionTags(raw: string): Set<string> {
 /** Title without decorations: brackets, "from <film>", feat., version/remaster tails, punctuation. */
 export function baseTitle(raw: string): string {
   let s = strip(raw).replace(/&/g, ' and ');
+  s = s.replace(/\|.*$/, ' ');                                          // "Title | www.site.com" → "Title"
+  s = s.replace(/\b(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+\.(?:com|in|net|org|co|info|pk|me)\b/g, ' ');   // stray website names in tags
   s = s.replace(/[\(\[\{][^\)\]\}]*[\)\]\}]/g, ' ');
   s = s.replace(/\s[-–—]\s.*$/, ' ');                                   // "- Remastered 2011", "- From the film…"
   s = s.replace(/\b(feat\.?|ft\.?|featuring)\b.*$/, ' ');
@@ -58,10 +60,10 @@ export function titleSimilarity(a: string, b: string): number {
   return Math.max(lev, contain);
 }
 
-/** Artist similarity in 0..1, or null when the original artist is unknown (e.g. label channels). */
+/** Artist similarity in 0..1, or null when EITHER side has no usable artist (label channels, untagged files) — an unknown is not a mismatch. */
 export function artistSimilarity(source: string, candidate: string): number | null {
   const s = splitArtists(source), c = splitArtists(candidate);
-  if (!s.length) return null; if (!c.length) return 0;
+  if (!s.length || !c.length) return null;
   const best = (a: string) => Math.max(...c.map(x => (x === a ? 1 : Math.max(levRatio(a, x), x.includes(a) || a.includes(x) ? 0.9 : 0))));
   const primary = best(s[0]); const overlap = s.map(best).reduce((m, v) => m + v, 0) / s.length;
   return +(0.6 * primary + 0.4 * overlap).toFixed(3);
