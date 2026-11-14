@@ -12,6 +12,8 @@ import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.StatFs;
 import android.provider.MediaStore;
@@ -46,6 +48,8 @@ public class DownloaderPlugin extends Plugin {
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
     private final Map<String, AtomicInteger> flags = new ConcurrentHashMap<>();   // 0 run · 1 cancel+discard · 2 cancel+keep partial
     private final AtomicInteger active = new AtomicInteger();
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable stopSvc = new Runnable() { @Override public void run() { if (active.get() == 0) DownloadService.stop(getContext()); } };
 
     private SharedPreferences prefs() { return getContext().getSharedPreferences("swarify_dl", Context.MODE_PRIVATE); }
 
@@ -70,11 +74,17 @@ public class DownloaderPlugin extends Plugin {
         final String id = call.getString("id", "");
         flags.put(id, new AtomicInteger(0));
         final int n = active.incrementAndGet();
+        main.removeCallbacks(stopSvc);
         DownloadService.start(getContext(), n);
         pool.execute(() -> {
             try { doDownload(call, id); }
             catch (Exception e) { call.reject(String.valueOf(e.getMessage()), "NETWORK"); }
-            finally { flags.remove(id); if (active.decrementAndGet() == 0) DownloadService.stop(getContext()); else DownloadService.start(getContext(), active.get()); }
+            finally {
+                flags.remove(id);
+                // Never stop a foreground service immediately after starting it: if Android has not yet run its startForeground(), the app is killed.
+                if (active.decrementAndGet() == 0) { main.removeCallbacks(stopSvc); main.postDelayed(stopSvc, 3000); }
+                else DownloadService.start(getContext(), active.get());
+            }
         });
     }
 
