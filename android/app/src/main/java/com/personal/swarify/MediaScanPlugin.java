@@ -7,6 +7,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -51,11 +55,11 @@ public class MediaScanPlugin extends Plugin {
             try {
                 JSArray out = new JSArray();
                 Uri base = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-                String[] proj = {
+                List<String> proj = new ArrayList<>(Arrays.asList(
                     MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
                     MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DURATION,
-                    MediaStore.Audio.Media.DATA
-                };
+                    MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.SIZE, MediaStore.Audio.Media.YEAR));
+                if (Build.VERSION.SDK_INT >= 30) proj.add(MediaStore.Audio.AudioColumns.GENRE);
                 // Music flagged by Android, OR common music formats anywhere (e.g. Download/), minus ringtones,
                 // alarms, voice notes and recordings.
                 String sel = "(" + MediaStore.Audio.Media.IS_MUSIC + " != 0 OR " + MediaStore.Audio.Media.MIME_TYPE
@@ -63,7 +67,7 @@ public class MediaScanPlugin extends Plugin {
                     + " AND " + MediaStore.Audio.Media.IS_RINGTONE + " = 0 AND " + MediaStore.Audio.Media.IS_NOTIFICATION + " = 0 AND "
                     + MediaStore.Audio.Media.IS_ALARM + " = 0 AND " + MediaStore.Audio.Media.DURATION + " >= 20000"
                     + " AND " + MediaStore.Audio.Media.DATA + " NOT LIKE '%/WhatsApp/%' AND " + MediaStore.Audio.Media.DATA + " NOT LIKE '%/Recordings/%'";
-                try (Cursor c = getContext().getContentResolver().query(base, proj, sel, null,
+                try (Cursor c = getContext().getContentResolver().query(base, proj.toArray(new String[0]), sel, null,
                         MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC")) {
                     if (c != null) {
                         while (c.moveToNext()) {
@@ -84,6 +88,12 @@ public class MediaScanPlugin extends Plugin {
                                 folder = i > 0 ? path.substring(0, i) : "";
                             }
                             o.put("folder", folder);
+                            o.put("size", c.getLong(c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)));
+                            o.put("year", c.getInt(c.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)));
+                            if (Build.VERSION.SDK_INT >= 30) {
+                                int gi = c.getColumnIndex(MediaStore.Audio.AudioColumns.GENRE);
+                                if (gi >= 0 && !c.isNull(gi)) o.put("genre", c.getString(gi));
+                            }
                             out.put(o);
                         }
                     }

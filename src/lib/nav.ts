@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { Album } from './types';
-export type Tab = 'home' | 'search' | 'library' | 'collector' | 'settings';
+export type Tab = 'home' | 'search' | 'library' | 'collector' | 'journey' | 'settings';
 type Nav = { tab: Tab; album: Album | null; libSel: string | null; full: boolean };
 let nav: Nav = { tab: 'home', album: null, libSel: null, full: false };
 const subs = new Set<() => void>();

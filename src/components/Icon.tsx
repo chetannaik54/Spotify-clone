@@ -13,6 +13,7 @@ const P: Record<string, string> = {
   folder: 'M3 6h6l2 2h10v11H3z', scan: 'M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3M4 12h16',
   lyrics: 'M4 5h16v11H9l-5 4z', eq: 'M6 4v16M12 4v16M18 4v16M4 9h4M10 14h4M16 8h4',
   collect: 'M12 3v12M7 10l5 5 5-5M4 19h16',
+  journey: 'M3 11l18-8-7 18-3-8z',
   moon: 'M20 14A8 8 0 1110 4a6 6 0 0010 10z', note: 'M9 18V5l11-2v13M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z',
 };
 const FILLED = new Set(['play', 'pause', 'next', 'prev']);

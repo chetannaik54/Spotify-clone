@@ -3,6 +3,7 @@ import Aurora from './components/Aurora';
 import Icon from './components/Icon';
 import { AlbumView, Home, Library, Search, Settings } from './components/Views';
 import Collector from './components/Collector';
+import Journey from './components/Journey';
 import { initCollector } from './lib/collector/service';
 import { MiniBar, NowPlaying } from './components/NowPlaying';
 import { current, useStore } from './lib/store';
@@ -10,7 +11,7 @@ import { go, useNav, type Tab } from './lib/nav';
 import { useEngine } from './lib/engine';
 import { paletteFrom } from './lib/colors';
 
-const TABS: [Tab, string, string][] = [['home', 'home', 'Home'], ['search', 'search', 'Search'], ['library', 'library', 'Library'], ['collector', 'collect', 'Collector'], ['settings', 'settings', 'Settings']];
+const TABS: [Tab, string, string][] = [['home', 'home', 'Home'], ['search', 'search', 'Search'], ['library', 'library', 'Library'], ['collector', 'collect', 'Collector'], ['journey', 'journey', 'Journey'], ['settings', 'settings', 'Settings']];
 const DEFAULT = ['#7c3aed', '#ec4899', '#f59e0b', '#06b6d4'];
 
 export default function App() {
@@ -30,7 +31,7 @@ export default function App() {
           {TABS.map(([id, ic, name]) => <button key={id} className={tab === id ? 'sel' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => nav(id)}><Icon n={ic} /><em>{name}</em></button>)}
         </nav>
         <div className="col">
-          <main key={tab + (album?.id ?? '')}>{album && tab === 'home' ? <AlbumView /> : album ? <AlbumView /> : tab === 'home' ? <Home /> : tab === 'search' ? <Search /> : tab === 'library' ? <Library /> : tab === 'collector' ? <Collector /> : <Settings />}</main>
+          <main key={tab + (album?.id ?? '')}>{album && tab === 'home' ? <AlbumView /> : album ? <AlbumView /> : tab === 'home' ? <Home /> : tab === 'search' ? <Search /> : tab === 'library' ? <Library /> : tab === 'collector' ? <Collector /> : tab === 'journey' ? <Journey /> : <Settings />}</main>
           <MiniBar />
           <nav className="tabbar" aria-label="Primary mobile">
             {TABS.map(([id, ic, name]) => <button key={id} className={tab === id ? 'sel' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => nav(id)}><Icon n={ic} size={22} /><span>{name}</span></button>)}

@@ -3,7 +3,7 @@ import type { Track } from './types';
 import { putFile } from './db';
 import { set } from './store';
 
-type Raw = { id: number; title: string; artist: string; album: string; albumId: number; duration: number; uri: string; folder: string };
+type Raw = { id: number; title: string; artist: string; album: string; albumId: number; duration: number; uri: string; folder: string; size?: number; year?: number; genre?: string };
 const MediaScan = registerPlugin<{ scan(): Promise<{ tracks: Raw[] }> }>('MediaScan');
 export const isNative = Capacitor.isNativePlatform();
 
@@ -27,6 +27,7 @@ export async function scanDevice(): Promise<number> {
   const mapped: Track[] = tracks.map(r => ({
     id: `lo-ms-${r.id}`, title: r.title || 'Unknown', artist: r.artist, album: r.album, duration: r.duration,
     art: `content://media/external/audio/albumart/${r.albumId}`, url: r.uri, source: 'local', folder: r.folder || 'Other',
+    size: r.size || undefined, year: r.year || undefined, genre: r.genre || undefined,
   }));
   merge(mapped);
   return mapped.length;
@@ -41,7 +42,7 @@ export async function importFiles(files: FileList | File[]): Promise<number> {
     const base = f.name.replace(/\.[^.]+$/, ''); const m = base.split(' - ');
     const rel = (f as any).webkitRelativePath as string | undefined;
     added.push({ id: `lo-${id}`, title: (m.length > 1 ? m.slice(1).join(' - ') : base).trim(), artist: m.length > 1 ? m[0].trim() : 'My Music',
-      art: '', url: `local:${id}`, source: 'local', folder: rel ? rel.split('/').slice(0, -1).join('/') || 'Imported' : 'Imported' });
+      art: '', url: `local:${id}`, source: 'local', size: f.size, folder: rel ? rel.split('/').slice(0, -1).join('/') || 'Imported' : 'Imported' });
   }
   set(s => ({ local: [...added, ...s.local] }));
   return added.length;

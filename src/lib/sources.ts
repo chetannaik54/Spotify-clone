@@ -1,4 +1,5 @@
 import type { Album, Track } from './types';
+import { lyricsCache } from './lyricsCache';
 
 const j = async (url: string) => {
   const r = await fetch(url);
@@ -64,14 +65,20 @@ export const SHELVES: { title: string; q: string; emoji: string }[] = [
   { title: 'Latest Bollywood', q: 'Bollywood 2025', emoji: '🆕' },
 ];
 
-/** Synced lyrics from LRCLIB (free, no key). */
-export async function fetchLyrics(t: Track): Promise<string | null> {
+/** Synced lyrics from LRCLIB (free, no key), cached on-device so they work offline once fetched. */
+export async function fetchLyrics(t: Track, opts: { cacheOnly?: boolean } = {}): Promise<string | null> {
+  try { const c = await lyricsCache.get(t); if (c.hit) return c.text; } catch { /* cache unavailable: fall through */ }
+  if (opts.cacheOnly || (typeof navigator !== 'undefined' && navigator.onLine === false)) return null;
   try {
     const d = await j(`https://lrclib.net/api/get?track_name=${encodeURIComponent(t.title)}&artist_name=${encodeURIComponent(t.artist)}`);
-    return d.syncedLyrics || d.plainLyrics || null;
-  } catch { return null; }
+    const text: string | null = d.syncedLyrics || d.plainLyrics || null;
+    lyricsCache.put(t, text).catch(() => {});
+    return text;
+  } catch (e) {
+    if (String((e as Error).message).startsWith('404')) lyricsCache.put(t, null).catch(() => {}); // genuinely no lyrics → remember
+    return null;                                                                                 // network failure → don't cache
+  }
 }
-
 /** iTunes albums (real catalogue data) + track listing for an album. */
 export async function searchAlbums(q: string, limit = 20): Promise<Album[]> {
   const d = await j(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&country=IN&media=music&entity=album&limit=${limit}`);
@@ -85,3 +92,4 @@ export async function albumTracks(id: string): Promise<Track[]> {
     duration: Math.round((x.trackTimeMillis ?? 30000) / 1000), source: 'itunes' as const, preview: true,
   }));
 }
+
