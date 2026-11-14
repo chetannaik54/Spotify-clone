@@ -22,6 +22,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- OAuth redirect: com.personal.swarify://auth/<provider> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.personal.swarify" android:host="auth" />
+            </intent-filter>
+
         </activity>
 
         <!-- Background playback: foreground media service + media-button receiver (Bluetooth / lock screen / resume after kill) -->

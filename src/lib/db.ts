@@ -1,9 +1,6 @@
 // IndexedDB store for imported local audio files (so they survive restarts).
-const open = () => new Promise<IDBDatabase>((res, rej) => {
-  const r = indexedDB.open('swarify', 1);
-  r.onupgradeneeded = () => r.result.createObjectStore('files');
-  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-});
+import { openDb } from './collector/kv';
+const open = openDb; // one shared 'swarify' database (files + collector stores)
 export async function putFile(id: string, blob: Blob) {
   const db = await open();
   await new Promise<void>((res, rej) => { const t = db.transaction('files', 'readwrite'); t.objectStore('files').put(blob, id); t.oncomplete = () => res(); t.onerror = () => rej(t.error); });

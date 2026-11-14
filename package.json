@@ -7,10 +7,13 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "android:sync": "npm run build && npx cap sync android",
-    "android:open": "npx cap open android"
+    "android:open": "npx cap open android",
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/browser": "^6.0.6",
     "@capacitor/core": "^6.1.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -21,6 +24,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "typescript": "^5.5.4",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "vitest": "^2.1.9"
   }
 }
