@@ -45,4 +45,5 @@ jobs:
           path: |
             tools/e2e/e2e-results.json
             tools/e2e/e2e.log
+            tools/e2e/dl-server.out
             tools/e2e/shots
