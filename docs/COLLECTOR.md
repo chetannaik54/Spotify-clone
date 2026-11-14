@@ -51,3 +51,28 @@ Disconnect removes tokens locally; Spotify has no revocation endpoint, so access
 | 76 unit tests (device flow incl. slow_down/denied/expired/cancel, refresh, revoke, pagination, private/deleted, classification, title parsing, CSV, dedupe) | **Simulated** (fake Google server) |
 | 54 browser checks of the real screen at 3 sizes | **Simulated** |
 | Real Google sign-in / real YouTube data on the tablet | **NOT tested** |
+
+## Milestone 3 — Matching (this update)
+Imported songs are matched to recordings you can legitimately keep. **Downloading itself is Milestone 4**; the Download buttons are present but disabled.
+
+**Sources**: your own device (no network), Internet Archive, Jamendo, SoundCloud. Online sources run only after a second consent prompt and only send each song's *title and artist*.
+
+**Confidence** (title 45 % · artist 30 % · duration 15 % · album 10 %): ≥95 exact · 80–94 likely (confirm) · <80 manual review. Hard rules: a different version (remix/live/cover/instrumental/karaoke/acoustic/slowed/mashup), a different artist, a >20 s duration gap or a preview-only file can never reach “likely”; an unknown original artist can never reach “exact”. Only an unflagged exact match is auto-selected; everything else waits for you.
+
+**Download permission is verified per recording from the source's own data** — a reachable stream is never treated as permission:
+| Source | Permitted only when |
+|---|---|
+| Jamendo | `audiodownload_allowed = true` **and** a download URL; license recorded |
+| Internet Archive | explicit Creative Commons / public-domain license in item metadata, not access-restricted/dark, has an audio file |
+| SoundCloud | `downloadable` (artist-enabled) **and** `access = playable` **and** downloads remaining |
+| This device | file already stored locally (status *downloaded*, `local_file_id` set) |
+
+**Honest statuses**: no candidates and every source searched → *No match*; any source failed → *Failed* (retry), never a false “no match”. “Free downloads available” counts only acceptable matches, not covers/remixes that happen to be downloadable.
+
+### Evidence (Milestone 3)
+| Check | Level |
+|---|---|
+| 118 unit tests (scoring bands incl. cover/remix/live/instrumental/karaoke/different artist, per-source permission matrix, privacy of queries, pipeline: bulk, partial outage, retry, skip, confirm/reject, local registration) | **Simulated** (fake Jamendo / Archive / SoundCloud following their documented shapes) |
+| 66 browser checks of the real Matching screen at 3 sizes | **Simulated** |
+| Real Jamendo / Internet Archive / SoundCloud responses | **NOT tested** (hosts unreachable from the build environment; SoundCloud API access for new apps is restricted) |
+| Matching on the physical tablet | **NOT tested** |
