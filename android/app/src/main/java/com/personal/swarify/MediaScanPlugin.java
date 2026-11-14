@@ -56,7 +56,13 @@ public class MediaScanPlugin extends Plugin {
                     MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.DURATION,
                     MediaStore.Audio.Media.DATA
                 };
-                String sel = MediaStore.Audio.Media.IS_MUSIC + " != 0 AND " + MediaStore.Audio.Media.DURATION + " >= 20000";
+                // Music flagged by Android, OR common music formats anywhere (e.g. Download/), minus ringtones,
+                // alarms, voice notes and recordings.
+                String sel = "(" + MediaStore.Audio.Media.IS_MUSIC + " != 0 OR " + MediaStore.Audio.Media.MIME_TYPE
+                    + " IN ('audio/mpeg','audio/mp4','audio/flac','audio/x-flac','audio/aac','audio/x-wav','audio/wav','audio/x-ms-wma'))"
+                    + " AND " + MediaStore.Audio.Media.IS_RINGTONE + " = 0 AND " + MediaStore.Audio.Media.IS_NOTIFICATION + " = 0 AND "
+                    + MediaStore.Audio.Media.IS_ALARM + " = 0 AND " + MediaStore.Audio.Media.DURATION + " >= 20000"
+                    + " AND " + MediaStore.Audio.Media.DATA + " NOT LIKE '%/WhatsApp/%' AND " + MediaStore.Audio.Media.DATA + " NOT LIKE '%/Recordings/%'";
                 try (Cursor c = getContext().getContentResolver().query(base, proj, sel, null,
                         MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC")) {
                     if (c != null) {

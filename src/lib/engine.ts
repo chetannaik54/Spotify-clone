@@ -1,9 +1,11 @@
-import { current, getState, set, step, useStore } from './store';
+import { current, getState, hooks, set, step, useStore } from './store';
 import { getFile } from './db';
 import { resolveSrc } from './scan';
+import { hasNativePlayer } from './native';
+import { initNative, syncNative, useNativeTime } from './engine.native';
 import { useEffect, useState } from 'react';
 
-export const audio = new Audio();
+export const audio = new Audio(); // web/browser engine only — never touched inside the Android app
 audio.preload = 'auto';
 const BANDS = [60, 230, 910, 3600, 14000];
 let ctx: AudioContext | null = null;
@@ -22,6 +24,7 @@ function wireEq() {
 }
 export function setEq(i: number, g: number) {
   const eq = [...getState().eq]; eq[i] = g; set({ eq });
+  if (hasNativePlayer) return; // native service applies it via the store sync
   if (g !== 0 || wired) { wireEq(); ctx?.resume(); if (filters[i]) filters[i].gain.value = g; }
 }
 export const EQ_LABELS = ['60Hz', '230Hz', '910Hz', '3.6k', '14k'];
@@ -56,8 +59,8 @@ function tick() {
   else if (fading || audio.volume !== s.volume) { fading = false; audio.volume = s.volume; }
   if (s.sleepAt && Date.now() >= s.sleepAt) { set({ playing: false, sleepAt: null }); }
 }
-setInterval(tick, 250);
-setInterval(() => {
+if (!hasNativePlayer) setInterval(tick, 250);
+if (!hasNativePlayer) setInterval(() => {
   const t = current(); if (!t || audio.paused || !audio.currentTime) return;
   set({ resume: { track: t, pos: audio.currentTime, dur: isFinite(audio.duration) ? audio.duration : 0 } });
 }, 5000);
@@ -97,21 +100,25 @@ function updateMedia(t: { title: string; artist: string; album?: string; art: st
 }
 
 export function useTime() {
+  const nt = useNativeTime();
   const [t, setT] = useState({ cur: 0, dur: 0 });
   useEffect(() => {
     const f = () => setT({ cur: audio.currentTime, dur: isFinite(audio.duration) ? audio.duration : 0 });
     audio.addEventListener('timeupdate', f); audio.addEventListener('loadedmetadata', f);
     return () => { audio.removeEventListener('timeupdate', f); audio.removeEventListener('loadedmetadata', f); };
   }, []);
-  return t;
+  return hasNativePlayer ? nt : t;
 }
-export const seek = (s: number) => { audio.currentTime = s; };
+export const seek = (s: number) => { if (hasNativePlayer) { hooks.seek?.(s); return; } audio.currentTime = s; };
 export function useEngine() {
   // subscribe to the pieces of state that drive playback
   const id = useStore(s => current(s)?.id);
   const playing = useStore(s => s.playing);
   const vol = useStore(s => s.volume);
   const rep = useStore(s => s.repeat);
-  const [sync] = useState(() => startEngine());
-  useEffect(() => { sync(); }, [id, playing, vol, rep, sync]);
+  const idx = useStore(s => s.index); const queue = useStore(s => s.queue); const shuffle = useStore(s => s.shuffle);
+  const eq = useStore(s => s.eq); const cf = useStore(s => s.crossfade); const sleepAt = useStore(s => s.sleepAt);
+  const [sync] = useState(() => (hasNativePlayer ? () => syncNative() : startEngine()));
+  useEffect(() => { sync(); }, [id, playing, vol, rep, idx, queue, shuffle, eq, cf, sleepAt, sync]);
+  useEffect(() => (hasNativePlayer ? initNative() : undefined), []);
 }

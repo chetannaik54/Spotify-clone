@@ -102,8 +102,8 @@ export function ScanButtons({ compact }: { compact?: boolean }) {
   return (
     <div className={compact ? 'scan compact' : 'scan'}>
       {isNative && <button className="big" disabled={busy} onClick={() => run(scanDevice)}><Icon n="scan" size={18} /> Scan device for music</button>}
-      <button className={isNative ? 'chip' : 'big'} disabled={busy} onClick={() => dir.current?.click()}><Icon n="folder" size={18} /> Import folder</button>
-      <button className="chip" disabled={busy} onClick={() => files.current?.click()}>Pick files</button>
+      {!isNative && <button className="big" disabled={busy} onClick={() => dir.current?.click()}><Icon n="folder" size={18} /> Import folder</button>}
+      {!isNative && <button className="chip" disabled={busy} onClick={() => files.current?.click()}>Pick files</button>}
       <input ref={files} type="file" accept="audio/*" multiple hidden onChange={e => e.target.files && run(() => importFiles(e.target.files!))} />
       <input ref={dir} type="file" multiple hidden {...({ webkitdirectory: '' } as object)} onChange={e => e.target.files && run(() => importFiles(e.target.files!))} />
       {msg && <span className="scan-msg">{msg}</span>}

@@ -22,6 +22,8 @@ export function set(p: Partial<State> | ((s: State) => Partial<State>)) {
 export function useStore<T>(sel: (s: State) => T): T {
   return useSyncExternalStore(cb => { subs.add(cb); return () => subs.delete(cb); }, () => sel(state));
 }
+/** Native engine installs these so UI actions go to the Android service instead of the JS queue logic. */
+export const hooks: { step: ((dir: 1 | -1) => boolean) | null; seek: ((s: number) => void) | null } = { step: null, seek: null };
 export const current = (s = state) => s.queue[s.index] as Track | undefined;
 
 export function playList(tracks: Track[], start = 0) {
@@ -34,6 +36,7 @@ export function addToQueue(t: Track, next = false) {
   set(s => { const q = [...s.queue]; q.splice(next ? s.index + 1 : q.length, 0, t); return { queue: q, index: s.index < 0 ? 0 : s.index, playing: s.index < 0 ? true : s.playing }; });
 }
 export function step(dir: 1 | -1, auto = false) {
+  if (hooks.step && hooks.step(dir)) return;
   set(s => {
     if (!s.queue.length) return {};
     if (auto && s.repeat === 'one') return { playing: true, index: s.index };
