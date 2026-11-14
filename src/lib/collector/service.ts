@@ -3,7 +3,10 @@ import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Catalogue, idbStores } from './catalogue';
-import { friendly, importSpotify } from './importer';
+import { friendly, friendlyYt, importCsvFiles, importSpotify, importYouTube } from './importer';
+import { GoogleAuth, GoogleReauthRequired, YT_SCOPE, type DeviceCode } from './google/auth';
+import { YouTubeClient } from './youtube/client';
+import { httpFetch } from '../http';
 import { secureStore } from './secure';
 import { ReauthRequired, SpotifyAuth } from './spotify/auth';
 import { SpotifyClient } from './spotify/client';
@@ -15,10 +18,13 @@ export const isNativeApp = Capacitor.isNativePlatform();
 export const redirectUri = (p: Platform) => (isNativeApp ? `com.personal.swarify://auth/${p}` : `${location.origin}/`);
 export const spotifyAuth = new SpotifyAuth({ fetch: (...a) => fetch(...a), store: secureStore, redirectUri: redirectUri('spotify') });
 const spotifyClient = new SpotifyClient({ fetch: (...a) => fetch(...a), auth: spotifyAuth });
+export const googleAuth = new GoogleAuth({ fetch: (...a) => httpFetch(...a), store: secureStore });
+const youtubeClient = new YouTubeClient({ fetch: (...a) => httpFetch(...a), auth: googleAuth });
+void YT_SCOPE;
 
 // ---- transient UI state (busy / messages) ----
-type Ui = { busy: Partial<Record<Platform, string>>; msg: Partial<Record<Platform, { kind: 'ok' | 'err'; text: string }>>; needsReauth: Partial<Record<Platform, boolean>>; connected: Partial<Record<Platform, boolean>> };
-let ui: Ui = { busy: {}, msg: {}, needsReauth: {}, connected: {} };
+type Ui = { device: Partial<Record<Platform, { code: string; url: string; expiresAt: number }>>; busy: Partial<Record<Platform, string>>; msg: Partial<Record<Platform, { kind: 'ok' | 'err'; text: string }>>; needsReauth: Partial<Record<Platform, boolean>>; connected: Partial<Record<Platform, boolean>> };
+let ui: Ui = { device: {}, busy: {}, msg: {}, needsReauth: {}, connected: {} };
 const subs = new Set<() => void>();
 const setUi = (f: (u: Ui) => Ui) => { ui = f(ui); subs.forEach(s => s()); };
 export const useCollectorUi = () => useSyncExternalStore(cb => { subs.add(cb); return () => subs.delete(cb); }, () => ui);
@@ -30,9 +36,52 @@ export const hasConsent = (p: Platform) => { try { return localStorage.getItem(c
 export const giveConsent = (p: Platform) => { try { localStorage.setItem(consentKey(p), '1'); } catch { /* ignore */ } };
 
 export async function refreshConnection() {
-  let c = false;
-  try { c = await spotifyAuth.isConnected(); } catch (e) { console.warn('secure storage unavailable', e); }
-  setUi(u => ({ ...u, connected: { ...u.connected, spotify: c } }));
+  let c = false, y = false;
+  try { c = await spotifyAuth.isConnected(); y = await googleAuth.isConnected(); } catch (e) { console.warn('secure storage unavailable', e); }
+  setUi(u => ({ ...u, connected: { ...u.connected, spotify: c, youtube: y } }));
+}
+
+// ---------------- YouTube (Google device flow) ----------------
+let deviceAbort: AbortController | null = null;
+export async function connectYouTube() {
+  deviceAbort?.abort(); deviceAbort = new AbortController(); const signal = deviceAbort.signal;
+  setUi(u => ({ ...u, busy: { ...u.busy, youtube: 'Contacting Google…' }, msg: { ...u.msg, youtube: undefined } }));
+  try {
+    const dc: DeviceCode = await googleAuth.startDeviceFlow();
+    setUi(u => ({ ...u, device: { ...u.device, youtube: { code: dc.user_code, url: dc.verification_url, expiresAt: dc.expires_at } }, busy: { ...u.busy, youtube: 'Waiting for you to approve on Google…' } }));
+    await googleAuth.pollDeviceFlow(dc, signal);
+    setUi(u => ({ ...u, device: { ...u.device, youtube: undefined }, needsReauth: { ...u.needsReauth, youtube: false } }));
+    await refreshConnection(); say('youtube', 'ok', 'Connected to YouTube');
+    setUi(u => ({ ...u, busy: { ...u.busy, youtube: undefined } }));
+    await runYouTubeImport({});
+  } catch (e) { say('youtube', 'err', (e as Error).message); setUi(u => ({ ...u, device: { ...u.device, youtube: undefined } })); }
+  finally { setUi(u => ({ ...u, busy: ui.busy.youtube && /Importing|Starting/.test(ui.busy.youtube) ? u.busy : { ...u.busy, youtube: undefined } })); }
+}
+export function cancelYouTubeConnect() { deviceAbort?.abort(); setUi(u => ({ ...u, device: { ...u.device, youtube: undefined }, busy: { ...u.busy, youtube: undefined } })); }
+
+export async function runYouTubeImport(o: { playlists?: boolean; liked?: boolean; onlySelected?: boolean }) {
+  if (ui.busy.youtube && /Importing|Starting/.test(ui.busy.youtube)) return;
+  setUi(u => ({ ...u, busy: { ...u.busy, youtube: 'Starting…' } }));
+  try {
+    const r = await importYouTube(youtubeClient, catalogue, { ...o, onProgress: (m, d, t) => setUi(u => ({ ...u, busy: { ...u.busy, youtube: `${m} (${d}/${t})` } })) });
+    say('youtube', r.errors.length ? 'err' : 'ok', `Imported ${r.playlists} lists · ${r.tracks_added} new videos${r.errors.length ? ` · ${r.errors.length} problem(s), see Sync History` : ''}`);
+  } catch (e) {
+    if (e instanceof GoogleReauthRequired) { setUi(u => ({ ...u, needsReauth: { ...u.needsReauth, youtube: true } })); await refreshConnection(); }
+    say('youtube', 'err', e instanceof GoogleReauthRequired ? e.message : (e as Error).message.startsWith('YouTube refused') ? (e as Error).message : friendlyYt(e));
+  } finally { setUi(u => ({ ...u, busy: { ...u.busy, youtube: undefined } })); }
+}
+
+export async function disconnectYouTube(purge: boolean) {
+  const revoked = await googleAuth.revoke(); await catalogue.removeAccount('youtube', purge);
+  setUi(u => ({ ...u, needsReauth: { ...u.needsReauth, youtube: false }, msg: { ...u.msg, youtube: { kind: 'ok', text: revoked ? 'Disconnected. Google access was revoked and tokens removed.' : 'Disconnected locally. Could not reach Google to revoke — remove access at myaccount.google.com/permissions.' } } }));
+  await refreshConnection();
+}
+
+// ---------------- CSV ----------------
+export async function importCsv(files: FileList | File[]) {
+  const list = await Promise.all(Array.from(files).map(async f => ({ name: f.name, text: await f.text() })));
+  const r = await importCsvFiles(catalogue, list);
+  setUi(u => ({ ...u, msg: { ...u.msg, csv: { kind: r.errors.length ? 'err' : 'ok', text: `Imported ${r.playlists} playlist(s) · ${r.tracks_added} new songs${r.errors.length ? ` · ${r.errors.join(' | ')}` : ''}` } } }));
 }
 
 export async function connectSpotify() {
@@ -89,7 +138,7 @@ export function useCollectorData(): CollectorData {
   const [d, setD] = useState<CollectorData>({ accounts: {}, playlists: [], tracks: [], syncs: [] });
   useEffect(() => {
     let live = true;
-    const load = async () => { const [sp, playlists, tracks, syncs] = await Promise.all([catalogue.account('spotify'), catalogue.playlists(), catalogue.tracks(), catalogue.syncs()]); if (live) setD({ accounts: { spotify: sp }, playlists, tracks, syncs }); };
+    const load = async () => { const [sp, yt, playlists, tracks, syncs] = await Promise.all([catalogue.account('spotify'), catalogue.account('youtube'), catalogue.playlists(), catalogue.tracks(), catalogue.syncs()]); if (live) setD({ accounts: { spotify: sp, youtube: yt }, playlists, tracks, syncs }); };
     load(); const off = catalogue.subscribe(load);
     return () => { live = false; off(); };
   }, []);

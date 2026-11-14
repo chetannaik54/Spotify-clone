@@ -1,7 +1,7 @@
-export type Platform = 'spotify' | 'youtube';
+export type Platform = 'spotify' | 'youtube' | 'csv';
 
 export type MatchingStatus = 'pending_match' | 'matched' | 'possible_match' | 'no_match' | 'download_permitted' | 'downloading' | 'downloaded' | 'unavailable' | 'failed';
-export type ImportStatus = 'imported' | 'unavailable';
+export type ImportStatus = 'imported' | 'unavailable' | 'not_music';
 
 /** One row per (platform, source track) — stored once no matter how many playlists contain it. */
 export type ImportedTrack = {
@@ -18,6 +18,9 @@ export type ImportedTrack = {
   import_status: ImportStatus;
   matching_status: MatchingStatus;
   local_file_id: string | null;  // set when a downloaded file has been registered in the local library
+  channel?: string;              // YouTube channel (label channels make poor artist names)
+  music_confidence?: number;     // 0..1 — how sure we are this video is a song (YouTube)
+  user_override?: boolean;       // user decided song / not-a-song; re-imports must not undo it
   created_at: number;
   updated_at: number;
 };

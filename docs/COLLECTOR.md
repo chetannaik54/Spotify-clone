@@ -37,3 +37,17 @@ Disconnect removes tokens locally; Spotify has no revocation endpoint, so access
 |---|---|---|
 | 14 Nov | **Physical tablet** (user screenshot) | Collector tab renders; Spotify sign-in → redirect → token exchange → encrypted storage worked (card shows *Connected*). First data call returned **HTTP 403**: the Spotify app was created without *Web API* (greyed out: requires Premium owner), so tokens are issued but API calls are refused. Not an app defect; error text now explains it. |
 | 14 Nov | Fake Spotify server (unit + browser) | 47 unit tests, 54 browser checks pass. **Simulated.** |
+
+## Milestone 2 — YouTube + CSV (this update)
+- **Sign-in**: Google OAuth *device flow* (user types a code at google.com/device). Read-only scope `youtube.readonly`. Client ID/secret belong to the user's own Google Cloud project, entered at runtime, kept in encrypted storage — never in source. Calls go through Capacitor's native HTTP so WebView CORS cannot block Google endpoints.
+- **Import**: playlists, playlist items (original order), liked videos (`myRating=like`). Private/deleted videos stay in place as *Unavailable*. Each video is scored (category, “Topic”/label channels, title words, duration) — non-songs are kept but flagged *Not a song*, with a one-tap override that survives re-imports.
+- **CSV import**: Exportify-style files; Spotify track URIs keep their ID so they dedupe with API imports.
+- **Disconnect** revokes the grant at Google (best effort) and clears tokens.
+- **Known limits**: Watch Later / history are not exposed by the API; consent screens left in “Testing” expire access every 7 days; daily API quota applies (10,000 units — a normal import uses a few hundred).
+
+### Evidence (Milestone 2)
+| Check | Level |
+|---|---|
+| 76 unit tests (device flow incl. slow_down/denied/expired/cancel, refresh, revoke, pagination, private/deleted, classification, title parsing, CSV, dedupe) | **Simulated** (fake Google server) |
+| 54 browser checks of the real screen at 3 sizes | **Simulated** |
+| Real Google sign-in / real YouTube data on the tablet | **NOT tested** |

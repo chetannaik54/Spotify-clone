@@ -5,7 +5,7 @@ export type Stores = { tracks: KV<ImportedTrack>; playlists: KV<ImportedPlaylist
 export const idbStores = (): Stores => ({ tracks: new IdbKV('c_tracks'), playlists: new IdbKV('c_playlists'), syncs: new IdbKV('c_syncs'), accounts: new IdbKV('c_accounts') });
 export const memoryStores = (): Stores => ({ tracks: new MemoryKV(), playlists: new MemoryKV(), syncs: new MemoryKV(), accounts: new MemoryKV() });
 
-export type IncomingTrack = Pick<ImportedTrack, 'source_track_id' | 'song_title' | 'artist_name' | 'album_name' | 'artwork_url' | 'duration_ms' | 'source_url' | 'import_status'> & { added_at?: string | null };
+export type IncomingTrack = Pick<ImportedTrack, 'source_track_id' | 'song_title' | 'artist_name' | 'album_name' | 'artwork_url' | 'duration_ms' | 'source_url' | 'import_status'> & { added_at?: string | null; platform?: Platform; channel?: string; music_confidence?: number };
 export type IncomingPlaylist = Pick<ImportedPlaylist, 'source_playlist_id' | 'kind' | 'name' | 'artwork_url' | 'owner' | 'total' | 'snapshot_id'>;
 
 /**
@@ -26,22 +26,24 @@ export class Catalogue {
     const entries: ImportedPlaylist['entries'] = [];
     const seen = new Set<string>();
     for (let i = 0; i < items.length; i++) {
-      const t = items[i]; const id = `${platform}:${t.source_track_id}`;
+      const t = items[i]; const plat = t.platform ?? platform; const id = `${plat}:${t.source_track_id}`;
       const existing = await this.s.tracks.get(id);
       if (!existing) {
         added++;
         await this.s.tracks.put(id, {
-          id, user_id: userId, source_platform: platform, source_track_id: t.source_track_id, song_title: t.song_title, artist_name: t.artist_name,
+          id, user_id: userId, source_platform: plat, source_track_id: t.source_track_id, song_title: t.song_title, artist_name: t.artist_name,
           album_name: t.album_name, artwork_url: t.artwork_url, duration_ms: t.duration_ms, source_url: t.source_url, import_status: t.import_status,
-          matching_status: t.import_status === 'unavailable' ? 'unavailable' : 'pending_match', local_file_id: null, created_at: now, updated_at: now,
+          matching_status: t.import_status === 'imported' ? 'pending_match' : 'unavailable', local_file_id: null, created_at: now, updated_at: now,
+          channel: t.channel, music_confidence: t.music_confidence,
         });
       } else if (!seen.has(id)) {
         const changed = existing.song_title !== t.song_title || existing.artist_name !== t.artist_name || existing.album_name !== t.album_name ||
-          existing.artwork_url !== t.artwork_url || existing.duration_ms !== t.duration_ms || existing.import_status !== t.import_status;
+          existing.artwork_url !== t.artwork_url || existing.duration_ms !== t.duration_ms || (!existing.user_override && existing.import_status !== t.import_status);
         if (changed) {
           updated++;
           await this.s.tracks.put(id, { ...existing, song_title: t.song_title, artist_name: t.artist_name, album_name: t.album_name, artwork_url: t.artwork_url,
-            duration_ms: t.duration_ms, import_status: t.import_status, updated_at: now });
+            duration_ms: t.duration_ms, channel: t.channel ?? existing.channel, music_confidence: t.music_confidence ?? existing.music_confidence,
+            ...(existing.user_override ? {} : { import_status: t.import_status, matching_status: t.import_status === 'imported' ? (existing.matching_status === 'unavailable' ? 'pending_match' : existing.matching_status) : 'unavailable' }), updated_at: now });
         }
       }
       seen.add(id);
@@ -81,6 +83,12 @@ export class Catalogue {
   /** Which playlists contain a track. */
   async playlistsOf(trackId: string) { return (await this.s.playlists.all()).filter(p => p.entries.some(e => e.track_id === trackId && !e.removed_at)); }
 
+  /** The user's call on whether a video is a song. Survives re-imports. */
+  async setMusicOverride(trackId: string, isMusic: boolean) {
+    const t = await this.s.tracks.get(trackId); if (!t) return;
+    await this.s.tracks.put(trackId, { ...t, import_status: isMusic ? 'imported' : 'not_music', matching_status: isMusic ? 'pending_match' : 'unavailable', user_override: true, updated_at: Date.now() });
+    this.emit();
+  }
   async addSync(r: SyncRecord) { await this.s.syncs.put(r.id, r); this.emit(); }
   async syncs() { return (await this.s.syncs.all()).sort((a, b) => b.started_at - a.started_at).slice(0, 50); }
   async account(platform: Platform) { return this.s.accounts.get(platform); }
