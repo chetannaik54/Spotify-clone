@@ -191,18 +191,18 @@ async function connect() {
     await call(`window.Capacitor.Plugins.NativePlayer.pause()`);
   }
   // pause (keep partial) → resume with an HTTP Range request
-  const p1 = ui.eval(`(async () => { try { await ${API}.download(${dlOpts('e2e2', 'song.wav', 'E2E Resume')}); return 'done'; } catch (e) { return 'err:' + (e.code || e.message); } })()`);
-  await sleep(1800); await call(`${API}.cancel({ id: 'e2e2', keepPartial: true })`); const r1 = await p1;
+  const pendingResume = ui.eval(`(async () => { try { await ${API}.download(${dlOpts('e2e2', 'song.wav', 'E2E Resume')}); return 'done'; } catch (e) { return 'err:' + (e.code || e.message); } })()`);
+  await sleep(1800); await call(`${API}.cancel({ id: 'e2e2', keepPartial: true })`); const r1 = await pendingResume;
   const pend = q("title='E2E Resume'"); pass('pause keeps a partial (pending) file', r1 === 'err:CANCELLED' && /is_pending=1/.test(pend), `${r1} ${pend.replace(/\s+/g, ' ').slice(0, 120)}`);
   const res2 = await call(`${API}.download(${dlOpts('e2e2', 'song.wav', 'E2E Resume')})`);
   const logTxt = fs.existsSync('/tmp/dl-server.log') ? fs.readFileSync('/tmp/dl-server.log', 'utf8') : '';
   pass('resume continues with an HTTP Range request (no restart) and completes', res2.ok && res2.r.size === expectSize && /range=bytes=[1-9]\d{3,}-/.test(logTxt), `${res2.ok ? res2.r.size : res2.msg} | ${(logTxt.match(/range=bytes=\d+-/g) || []).join(',')}`);
   adb(`pull "/sdcard/Music/Swarify/E2E Artist/E2E Album/E2E Resume.wav" /tmp/e2e-pulled2.wav`); pass('resumed file is byte-identical', require('crypto').createHash('sha256').update(fs.readFileSync('/tmp/e2e-pulled2.wav')).digest('hex') === expectSha);
-  const bad = await call(`${API}.download(${dlOpts('e2e3', 'bad.wav', 'E2E Bad')})`);
-  pass('non-audio download is rejected by the integrity check and leaves nothing behind', !bad.ok && bad.code === 'INTEGRITY' && !/E2E Bad/.test(q("title='E2E Bad'")), `${bad.code} ${bad.msg}`);
+  const notAudio = await call(`${API}.download(${dlOpts('e2e3', 'bad.wav', 'E2E Bad')})`);
+  pass('non-audio download is rejected by the integrity check and leaves nothing behind', !notAudio.ok && notAudio.code === 'INTEGRITY' && !/E2E Bad/.test(q("title='E2E Bad'")), `${notAudio.code} ${notAudio.msg}`);
   const miss = await call(`${API}.download(${dlOpts('e2e4', 'missing.wav', 'E2E Missing')})`); pass('HTTP 404 is reported as an HTTP error (not retried by the plugin)', !miss.ok && miss.code === 'HTTP' && /404/.test(miss.msg), `${miss.code} ${miss.msg}`);
-  const p3 = ui.eval(`(async () => { try { await ${API}.download(${dlOpts('e2e5', 'song.wav', 'E2E Cancelled')}); return 'done'; } catch (e) { return 'err:' + (e.code || e.message); } })()`);
-  await sleep(1500); await call(`${API}.cancel({ id: 'e2e5', keepPartial: false })`); const r3 = await p3;
+  const pendingCancel = ui.eval(`(async () => { try { await ${API}.download(${dlOpts('e2e5', 'song.wav', 'E2E Cancelled')}); return 'done'; } catch (e) { return 'err:' + (e.code || e.message); } })()`);
+  await sleep(1500); await call(`${API}.cancel({ id: 'e2e5', keepPartial: false })`); const r3 = await pendingCancel;
   pass('cancel discards the partial file', r3 === 'err:CANCELLED' && !/E2E Cancelled/.test(q("title='E2E Cancelled'")), r3);
 
   // ---- 9. reboot recovery ----
