@@ -14,12 +14,21 @@ const OPEN_LICENSE = /creativecommons\.org\/(licenses|publicdomain)\/|creativeco
 export class ArchiveSource implements MatchSource {
   id = 'archive' as const; name = 'Internet Archive';
   constructor(private d: { fetch: typeof fetch; maxItems?: number }) {}
+  /** Network errors (DNS blips on mobile data/Wi-Fi roaming) are retried twice with a short back-off; HTTP status errors are not. */
+  private async get(url: string, signal?: AbortSignal): Promise<Response> {
+    let last: unknown;
+    for (let i = 0; i < 3; i++) {
+      try { return await this.d.fetch(url, { signal }); }
+      catch (e) { last = e; if (signal?.aborted) throw e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+    }
+    throw last;
+  }
   async search(q: MatchQuery, signal?: AbortSignal): Promise<Candidate[]> {
     const esc = (s: string) => s.replace(/["\\()\[\]:^~*?]/g, ' ').replace(/\s+/g, ' ').trim();
     const artist = esc(q.artist.split(/[,;&]/)[0] ?? '');
     const query = `title:(${esc(q.title)})${artist ? ` AND creator:(${artist})` : ''} AND mediatype:audio`;
     const url = `https://archive.org/advancedsearch.php?${new URLSearchParams({ q: query, rows: '8', output: 'json' })}&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=licenseurl`;
-    const r = await this.d.fetch(url, { signal }); if (!r.ok) throw new Error(`Internet Archive HTTP ${r.status}`);
+    const r = await this.get(url, signal); if (!r.ok) throw new Error(`Internet Archive HTTP ${r.status}`);
     const docs = ((await r.json()) as { response?: { docs?: Doc[] } }).response?.docs ?? [];
     const out: Candidate[] = [];
     // only look closer at hits whose title plausibly matches (saves a metadata request per irrelevant hit)
