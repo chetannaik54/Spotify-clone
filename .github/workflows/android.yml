@@ -1,5 +1,7 @@
 name: Build Android APK
 on: { push: { branches: ['**'] }, workflow_dispatch: {} }
+# Free private-repo quota is limited (~2000 min/month): newer pushes cancel older runs, and the long emulator job only runs when started manually (Actions → Run workflow).
+concurrency: { group: '${{ github.workflow }}-${{ github.ref }}', cancel-in-progress: true }
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -17,6 +19,7 @@ jobs:
   e2e:
     name: Emulator end-to-end (automated, not a physical device)
     needs: apk
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
