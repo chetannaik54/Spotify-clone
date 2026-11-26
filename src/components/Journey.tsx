@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useCollectorData } from '../lib/collector/service';
 import { buildChecklist, buildInventory, fmtBytes, fmtDur, readiness, selectForJourney, selectionSig, type Level } from '../lib/journey/inventory';
-import { cacheLyricsFor } from '../lib/journey/prepare';
+import { cacheArtFor, cacheLyricsFor } from '../lib/journey/prepare';
 import { verifyJourney, type VerifyReport } from '../lib/journey/verify';
 import { getFile } from '../lib/db';
 import { MediaScan, isNative } from '../lib/scan';
@@ -146,12 +146,19 @@ function PrepareActions({ sel, p, reload }: { sel: ReturnType<typeof selectForJo
     try { const r = await cacheLyricsFor(sel.tracks, (d, t) => setMsg(`Caching lyrics… ${d}/${t}`)); setMsg(`Lyrics stored for ${r.cached + r.skipped} songs · ${r.none} have none · ${r.failed} failed`); reload(); }
     catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
+  const art = async () => {
+    if (!navigator.onLine) { setMsg('You are offline — connect to Wi-Fi once to store artwork for this journey.'); return; }
+    setBusy(true); setMsg('Caching artwork…');
+    try { const r = await cacheArtFor(sel.tracks, (d, t) => setMsg(`Caching artwork… ${d}/${t}`)); setMsg(`Artwork stored for ${r.cached} songs${r.failed ? ` · ${r.failed} failed` : ''} · ${r.skipped} already on device`); }
+    catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  };
   const label = `Journey · ${JOURNEY_TYPES.find(t => t.id === p.type)!.label} ${p.hours}h`;
   return (
     <div className="scan">
       <button className="big" disabled={!sel.tracks.length} onClick={() => playList(sel.tracks, 0)}><Icon n="play" size={18} /> Play journey mix</button>
       <button className="chip" disabled={!sel.tracks.length} onClick={() => { newPlaylist(label, sel.tracks); setMsg(`Playlist “${label}” saved in your Library`); }}>Save as playlist</button>
       <button className="chip" disabled={busy || !sel.tracks.length} onClick={lyrics}>Cache lyrics</button>
+      <button className="chip" disabled={busy || !sel.tracks.length} onClick={art}>Cache artwork</button>
       {msg && <span className="scan-msg">{msg}</span>}
     </div>
   );

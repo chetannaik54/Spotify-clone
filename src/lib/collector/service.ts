@@ -7,6 +7,7 @@ import { friendly, friendlyYt, importCsvFiles, importSpotify, importYouTube } fr
 import { GoogleAuth, GoogleReauthRequired, YT_SCOPE, type DeviceCode } from './google/auth';
 import { YouTubeClient } from './youtube/client';
 import { httpFetch } from '../http';
+import { artCache } from '../artCache';
 import { getState, set as setStore } from '../store';
 import { buildMirror, mergeMirror } from './mirror';
 import { isSyncDue } from './sched';
@@ -205,6 +206,7 @@ export const downloads = new DownloadManager({
   cat: catalogue, transport: hasNativeDownloader ? new NativeTransport() : new WebTransport(),
   settings: () => getState().dl, localTracks: () => getState().local,
   registerLocal: (t: Track) => { setStore(s => ({ local: [t, ...s.local.filter(x => x.id !== t.id)] })); mirrorNow(); },
+  warmArt: (url) => { void artCache.warm(url); },
 });
 export const deviceFreeBytes = () => (hasNativeDownloader ? new NativeTransport() : new WebTransport()).freeBytes();
 export function useDownloadJobs(): DownloadJob[] {

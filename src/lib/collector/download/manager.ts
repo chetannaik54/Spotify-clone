@@ -9,6 +9,8 @@ export type ManagerDeps = {
   cat: Catalogue; transport: Transport; settings: () => Settings;
   localTracks: () => Track[]; registerLocal: (t: Track) => void;
   now?: () => number; sleep?: (ms: number) => Promise<void>; concurrency?: number; maxAttempts?: number;
+  /** Optional: cache the song's artwork for offline viewing once it's downloaded. Omitted in tests (no network). */
+  warmArt?: (url: string | undefined) => void;
 };
 export type EnqueueResult = { queued: string[]; skipped: { id: string; reason: string }[] };
 const MIN_FILE_BYTES = 10_000;       // anything smaller than ~10 KB is an error page, not a song
@@ -99,7 +101,7 @@ export class DownloadManager {
       if (res.size < MIN_FILE_BYTES) { await this.d.transport.discard(j.id).catch(() => {}); throw new TransportError(`Downloaded file is only ${res.size} bytes — not audio`, 'integrity'); }
       if (j.expected_bytes && Math.abs(res.size - j.expected_bytes) > Math.max(2048, j.expected_bytes * 0.01)) { await this.d.transport.discard(j.id).catch(() => {}); throw new TransportError(`Size mismatch: expected ${j.expected_bytes}, got ${res.size}`, 'integrity'); }
       const track: Track = { id: res.id, title: j.title, artist: j.artist || 'Unknown artist', album: j.album, art: j.art, url: res.url, duration: j.duration_ms ? Math.round(j.duration_ms / 1000) : undefined, source: 'local', size: res.size, folder: res.folder ?? 'Music/Swarify' };
-      this.d.registerLocal(track); await this.d.cat.markDownloaded(j.id, res.id);
+      this.d.registerLocal(track); await this.d.cat.markDownloaded(j.id, res.id); this.d.warmArt?.(track.art);
       await this.put(j, { state: 'done', bytes: res.size, total: res.size, result: { id: res.id, url: res.url, size: res.size, folder: res.folder } });
     } catch (e) {
       const te = e instanceof TransportError ? e : new TransportError((e as Error).message, 'network');

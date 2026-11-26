@@ -3,16 +3,23 @@ import type { Album, Playlist, Track } from '../lib/types';
 import { addToPlaylist, addToQueue, current, newPlaylist, playList, toggleLike, useStore } from '../lib/store';
 import { resolveSrc } from '../lib/scan';
 import { go } from '../lib/nav';
+import { artCache } from '../lib/artCache';
 import Icon from './Icon';
 
 export const fmt = (s = 0) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-/** Artwork with a branded fallback when there is no / broken image. */
+/** Artwork with a branded fallback when there is no / broken image. A remote cover (downloaded songs) is
+ *  swapped for an offline-cached copy when one exists, so it still shows with no connection. */
 export function Art({ src, title = '', cls = '' }: { src?: string; title?: string; cls?: string }) {
   const [bad, setBad] = useState(false);
-  useEffect(() => setBad(false), [src]);
-  if (!src || bad) return <div className={`art ph ${cls}`}><Icon n="note" size={28} /></div>;
-  return <img className={`art ${cls}`} src={resolveSrc(src)} alt={title} loading="lazy" onError={() => setBad(true)} />;
+  const [shown, setShown] = useState(src);
+  useEffect(() => {
+    setBad(false); setShown(src); let live = true;
+    if (src) artCache.resolve(src).then(u => { if (live && u && u !== src) setShown(u); }).catch(() => {});
+    return () => { live = false; };
+  }, [src]);
+  if (!shown || bad) return <div className={`art ph ${cls}`}><Icon n="note" size={28} /></div>;
+  return <img className={`art ${cls}`} src={resolveSrc(shown)} alt={title} loading="lazy" onError={() => setBad(true)} />;
 }
 
 function AddMenu({ t, onClose }: { t: Track; onClose: () => void }) {

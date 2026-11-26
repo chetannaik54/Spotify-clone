@@ -63,6 +63,19 @@ describe('download lifecycle', () => {
     expect(local).toEqual([expect.objectContaining({ id: 'lo-spotify:t0', title: 'Tum Hi Ho', artist: 'Arijit Singh', album: 'Aashiqui 2', source: 'local', size: 4 * MB, folder: 'Music/Swarify/x', url: 'content://media/spotify:t0' })]);
     expect(await cat.s.tracks.get('spotify:t0')).toMatchObject({ matching_status: 'downloaded', local_file_id: 'lo-spotify:t0' });
   });
+  it('asks to cache artwork once the song is downloaded, with the matched recording\'s cover', async () => {
+    const warmed: (string | undefined)[] = [];
+    mgr = new DownloadManager({ cat, transport: tr, settings: () => settings, localTracks: () => local, registerLocal: t => local.push(t), sleep: async () => {}, concurrency: 2, warmArt: url => warmed.push(url) });
+    await setup(1); await mgr.enqueue(['spotify:t0']); await settle();
+    expect(warmed).toEqual(['https://a/1.jpg']);
+  });
+  it('never calls warmArt when a job fails (nothing downloaded to cache art for)', async () => {
+    const warmed: (string | undefined)[] = [];
+    mgr = new DownloadManager({ cat, transport: tr, settings: () => settings, localTracks: () => local, registerLocal: t => local.push(t), sleep: async () => {}, concurrency: 2, warmArt: url => warmed.push(url) });
+    await setup(1); tr.behaviour.set('spotify:t0', async () => { throw new TransportError('nope', 'integrity'); });
+    await mgr.enqueue(['spotify:t0']); await settle();
+    expect(warmed).toEqual([]);
+  });
   it('runs at most 2 at a time and finishes the rest', async () => {
     await setup(4); let active = 0, peak = 0;
     for (let i = 0; i < 4; i++) tr.behaviour.set(`spotify:t${i}`, async job => { active++; peak = Math.max(peak, active); await settle(15); active--; return { id: `lo-${job.id}`, url: `c://${job.id}`, size: 4 * MB }; });
