@@ -100,3 +100,31 @@ Imported songs are matched to recordings you can legitimately keep. **Downloadin
 | Browser end-to-end vs a **real local HTTP server** with Range support: pause → resume sends `Range: bytes=…`; bad file rejected; library + playlist registration | Real HTTP, browser storage (not Android) |
 | Android plugin: compiled in CI; emulator test (MediaStore path, SHA-256, Range resume, integrity, cancel, native playback of the file) | Emulator — see report |
 | Downloads on the physical tablet | **NOT tested** |
+
+## Post-M5 fixes and additions (CI unblocked, tablet playlist run)
+
+- **Emulator downloader suite now green (35 PASS / 0 FAIL / 1 INCONCLUSIVE):** fixed a real bug — the Android
+  foreground download service could be told to stop before Android finished starting it, when a download failed
+  instantly (e.g. an HTTP 404), which could crash the app. The service now waits 3 s after the last download
+  before stopping, and a new download cancels that pending stop. (`DownloaderPlugin.java`, e2e commit history
+  from `6cfaeec` onward.) Everything else in this suite (download, SHA-256 integrity, Range resume, bad-file
+  rejection, 404 handling, cancel) was already passing; the 4 earlier test *failures* in this area turned out
+  to be bugs in the e2e script itself (stale fixture names, a `content query --where` shell-quoting problem),
+  not the app.
+- **Matching: Internet Archive requests now retry twice on transient network errors** (e.g. a DNS blip on
+  mobile data), distinct from an HTTP error from the server, which is still reported as-is and not retried.
+- **Real-catalogue result for the 50-song 90s/2000s Bollywood CSV playlist (tablet, no Jamendo ID entered):**
+  0 of 50 songs eligible for download; 1 matched but not downloadable (Internet Archive entry has no audio
+  file); the rest no match / search failed. This matches the stated expectation above — commercial-label
+  Bollywood is not on Jamendo/Archive/SoundCloud. A rescan of the user's own device library is the most likely
+  way to fill in matches for this kind of playlist; Jamendo/SoundCloud mainly help with independent-artist music.
+- **Offline artwork cache:** downloaded songs' cover art is a remote URL from the matched source. It used to go
+  blank the moment the tablet was offline. A persistent `ArtCache` (IndexedDB, same pattern as the lyrics cache)
+  now stores the image after each successful download, and the shared `<Art>` component transparently prefers
+  the cached copy everywhere art is shown. Journey's prepare step also gets a "Cache artwork" button to fetch a
+  whole trip's covers ahead of time on Wi-Fi. **Not yet verified with the network actually off on a device** —
+  same caveat as every other offline claim here.
+- **CI cost:** the free Actions compute quota was exhausted partway through this milestone (the emulator job
+  costs ~10 min per run). The repository is now public, which removes that limit; the workflow was also changed
+  so the ~10-minute emulator suite only runs on a manual "Run workflow" dispatch, not on every push (which still
+  builds the APK, in under 3 minutes).
