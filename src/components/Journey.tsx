@@ -8,6 +8,7 @@ import { MediaScan, isNative } from '../lib/scan';
 import { deviceFreeBytes } from '../lib/collector/service';
 import { defaultPlan, EXPERIENCES, HOURS, JOURNEY_TYPES, type Experience, type JourneyPlan } from '../lib/journey/types';
 import { lyricsCache, lyricsKey } from '../lib/lyricsCache';
+import { artCache } from '../lib/artCache';
 import { newPlaylist, playList, set, useStore } from '../lib/store';
 import Icon from './Icon';
 import JourneyQuiz from './JourneyQuiz';
@@ -30,12 +31,14 @@ export default function Journey() {
   const data = useCollectorData();
   const [lyricKeys, setLyricKeys] = useState<Set<string>>(new Set());
   const reloadLyrics = () => lyricsCache.cachedKeys().then(setLyricKeys).catch(() => {});
-  useEffect(() => { reloadLyrics(); }, []);
+  const [artKeys, setArtKeys] = useState<Set<string>>(new Set());
+  const reloadArt = () => artCache.cachedUrls().then(setArtKeys).catch(() => {});
+  useEffect(() => { reloadLyrics(); reloadArt(); }, []);
 
   const p = plan ?? defaultPlan();
   const inv = useMemo(() => buildInventory({ local, importedStatuses: data.tracks.map(t => t.matching_status), lyricKeys }), [local, data.tracks, lyricKeys]);
   const sel = useMemo(() => selectForJourney(local, p), [local, p]);
-  const checks = useMemo(() => buildChecklist(p, inv, sel, verified, lyricKeys), [p, inv, sel, verified, lyricKeys]);
+  const checks = useMemo(() => buildChecklist(p, inv, sel, verified, lyricKeys, artKeys), [p, inv, sel, verified, lyricKeys, artKeys]);
   const ready = readiness(checks);
   const [vbusy, setVbusy] = useState(''); 
   const runVerify = async () => {
@@ -79,7 +82,7 @@ export default function Journey() {
           <div className="meter"><i style={{ width: `${Math.min(100, (sel.bytes / (p.storageMB * 1024 * 1024)) * 100)}%` }} /></div>
           <p className="empty"><b>{fmtBytes(sel.bytes)}</b> of {fmtBytes(p.storageMB * 1024 * 1024)} · {sel.tracks.length} songs · {fmtDur(sel.seconds)} of {fmtDur(p.hours * 3600)} needed{sel.estimatedBytes ? ` · ${fmtBytes(sel.estimatedBytes)} estimated` : ''}</p>
           <p className="empty">Whole library on this device: {inv.music.count} songs · {fmtDur(inv.music.seconds)} · {fmtBytes(inv.music.bytes)}</p>
-          <PrepareActions sel={sel} p={p} reload={reloadLyrics} />
+          <PrepareActions sel={sel} p={p} reload={reloadLyrics} reloadArt={reloadArt} />
         </section>
       </div>
 
@@ -138,7 +141,7 @@ function Ring({ percent, ok }: { percent: number; ok: boolean }) {
   return <div className="ring" role="img" aria-label={`${percent}% prepared`}><svg viewBox="0 0 110 110"><circle cx="55" cy="55" r={r} className="ring-bg" /><circle cx="55" cy="55" r={r} className={`ring-fg ${ok ? 'ok' : ''}`} style={{ strokeDasharray: c, strokeDashoffset: c * (1 - percent / 100) }} /></svg><b>{percent}%</b></div>;
 }
 
-function PrepareActions({ sel, p, reload }: { sel: ReturnType<typeof selectForJourney>; p: JourneyPlan; reload: () => void }) {
+function PrepareActions({ sel, p, reload, reloadArt }: { sel: ReturnType<typeof selectForJourney>; p: JourneyPlan; reload: () => void; reloadArt: () => void }) {
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false);
   const lyrics = async () => {
     if (!navigator.onLine) { setMsg('You are offline — connect to Wi-Fi once to store lyrics for this journey.'); return; }
@@ -149,7 +152,7 @@ function PrepareActions({ sel, p, reload }: { sel: ReturnType<typeof selectForJo
   const art = async () => {
     if (!navigator.onLine) { setMsg('You are offline — connect to Wi-Fi once to store artwork for this journey.'); return; }
     setBusy(true); setMsg('Caching artwork…');
-    try { const r = await cacheArtFor(sel.tracks, (d, t) => setMsg(`Caching artwork… ${d}/${t}`)); setMsg(`Artwork stored for ${r.cached} songs${r.failed ? ` · ${r.failed} failed` : ''} · ${r.skipped} already on device`); }
+    try { const r = await cacheArtFor(sel.tracks, (d, t) => setMsg(`Caching artwork… ${d}/${t}`)); setMsg(`Artwork stored for ${r.cached} songs${r.failed ? ` · ${r.failed} failed` : ''} · ${r.skipped} already on device`); reloadArt(); }
     catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   };
   const label = `Journey · ${JOURNEY_TYPES.find(t => t.id === p.type)!.label} ${p.hours}h`;

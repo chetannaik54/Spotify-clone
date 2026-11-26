@@ -82,7 +82,7 @@ export const fmtBytes = (b: number) => b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFix
 /** Fingerprint of what a verification covered. If the mix or the files change, the old verification no longer counts. */
 export const selectionSig = (tracks: Track[]) => { let h = 2166136261; for (const t of tracks) { const k = `${t.id}|${t.size ?? 0}|${t.url}`; for (let i = 0; i < k.length; i++) { h ^= k.charCodeAt(i); h = Math.imul(h, 16777619); } } return `${tracks.length}:${(h >>> 0).toString(36)}`; };
 
-export function buildChecklist(plan: JourneyPlan, inv: Inventory, sel: Selection, verifiedIn: { passed: boolean; at: number; sig?: string; report?: { reasons: string[] } } | null, lyricKeys: Set<string> = new Set()): CheckItem[] {
+export function buildChecklist(plan: JourneyPlan, inv: Inventory, sel: Selection, verifiedIn: { passed: boolean; at: number; sig?: string; report?: { reasons: string[] } } | null, lyricKeys: Set<string> = new Set(), artKeys: Set<string> = new Set()): CheckItem[] {
   const need = plan.hours * 3600, cover = need ? sel.seconds / need : 0;
   const stale = !!verifiedIn && verifiedIn.sig !== undefined && verifiedIn.sig !== selectionSig(sel.tracks);
   const verified = stale ? null : verifiedIn;
@@ -105,6 +105,11 @@ export function buildChecklist(plan: JourneyPlan, inv: Inventory, sel: Selection
   if (plan.prefs.sing && sel.tracks.length) {
     const n = sel.tracks.filter(t => lyricKeys.has(lyricsKey(t))).length, share = n / sel.tracks.length;
     items.push({ id: 'lyrics', mandatory: false, label: 'Lyrics cached for sing-along', detail: `${n} of ${sel.tracks.length} songs have lyrics stored on this device`, level: share >= 0.9 ? 'ok' : 'warn' });
+  }
+  const remoteArt = sel.tracks.filter(t => t.art && /^https?:/.test(t.art));
+  if (remoteArt.length) {
+    const cachedN = remoteArt.filter(t => artKeys.has(t.art)).length;
+    items.push({ id: 'art', mandatory: false, label: 'Artwork cached for offline', detail: `${cachedN} of ${remoteArt.length} covers stored on this device`, level: cachedN === remoteArt.length ? 'ok' : 'warn' });
   }
   const need2: [Experience, 'stories' | 'podcasts' | 'sleep', string][] = [['stories', 'stories', 'Audio stories'], ['podcasts', 'podcasts', 'Podcasts'], ['sleep', 'sleep', 'Sleep sounds']];
   for (const [exp, key, label] of need2) if (plan.prefs[exp]) items.push({ id: key, mandatory: false, label, detail: inv.library[key] ? `${inv.library[key]} items stored offline` : 'Nothing stored offline yet', level: inv.library[key] ? 'ok' : 'warn' });

@@ -89,6 +89,16 @@ describe('checklist & READY / NOT READY', () => {
     const local = lib(100); const keys = new Set(local.map(lyricsKey));
     expect(mk(100, plan(), null, keys).find(i => i.id === 'lyrics')!.level).toBe('ok'); expect(mk(100).find(i => i.id === 'lyrics')!.level).toBe('warn');
   });
+  it('artwork coverage only appears when songs have remote art, and reflects the cache', () => {
+    expect(mk(100).find(i => i.id === 'art')).toBeUndefined();   // the fixture tracks all have local art — nothing to cache
+    const local = lib(10, i => ({ art: `https://cdn/cover${i}.jpg` })); const p = plan();
+    const inv = buildInventory({ local, importedStatuses: [], lyricKeys: new Set() }); const sel = selectForJourney(local, p);
+    const none = buildChecklist(p, inv, sel, null, new Set()); expect(none.find(i => i.id === 'art')).toMatchObject({ level: 'warn', detail: '0 of 10 covers stored on this device' });
+    const some = buildChecklist(p, inv, sel, null, new Set(), new Set(local.slice(0, 4).map(t => t.art)));
+    expect(some.find(i => i.id === 'art')).toMatchObject({ level: 'warn', detail: '4 of 10 covers stored on this device' });
+    const all = buildChecklist(p, inv, sel, null, new Set(), new Set(local.map(t => t.art)));
+    expect(all.find(i => i.id === 'art')).toMatchObject({ level: 'ok', detail: '10 of 10 covers stored on this device' });
+  });
 });
 
 describe('lyrics cache (offline lyrics)', () => {

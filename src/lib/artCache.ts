@@ -33,6 +33,7 @@ export class ArtCache {
 
   async has(url: string | undefined): Promise<boolean> { return !!url && !!(await this.kv.get(url).catch(() => undefined)); }
   async count(): Promise<number> { return (await this.kv.all()).length; }
+  async cachedUrls(): Promise<Set<string>> { return new Set((await this.kv.all()).map(r => r.key)); }
 }
 
 export const artCache = new ArtCache(new IdbKV<CachedArt>('art_cache'));
