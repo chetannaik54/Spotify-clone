@@ -69,6 +69,10 @@ describe('Jamendo source & download permission', () => {
     let n = 0; const s = new JamendoSource({ clientId: 'x', fetch: (async () => res({ headers: { status: 'success' }, results: n++ ? [t()] : [] })) as unknown as typeof fetch }); expect((await s.search(Q('a', 'b'))).length).toBe(1);
     const bad = new JamendoSource({ clientId: 'x', fetch: (async () => res({ headers: { status: 'failed', error_message: 'invalid client_id' }, results: [] })) as unknown as typeof fetch }); await expect(bad.search(Q('a', 'b'))).rejects.toThrow(/invalid client_id/);
   });
+  it('retries a transient network error (DNS blip) instead of failing the whole search', async () => {
+    let calls = 0; const s = new JamendoSource({ clientId: 'x', fetch: (async () => { calls++; if (calls < 2) throw new TypeError('Failed to fetch'); return res({ headers: { status: 'success' }, results: [t()] }); }) as unknown as typeof fetch });
+    expect((await s.search(Q('Tum Hi Ho', 'Arijit Singh'))).length).toBe(1); expect(calls).toBe(2);
+  }, 10000);
 });
 
 describe('Internet Archive source & download permission', () => {
@@ -93,6 +97,15 @@ describe('Internet Archive source & download permission', () => {
   it('prefers FLAC and marks it lossless', async () => {
     const [c] = await ia({ x: { md: { title: 'T', creator: 'C', licenseurl: 'https://creativecommons.org/licenses/by/4.0/' }, files: [mp3, { name: 'song.flac', format: 'Flac', length: '262' }] } }).search(Q('T', 'C')); expect(c.quality.lossless).toBe(true); expect(c.download.format).toBe('flac');
   });
+  it('retries a transient network error (e.g. "Unable to resolve host archive.org") instead of reporting no match', async () => {
+    let calls = 0;
+    const s = new ArchiveSource({ maxItems: 10, fetch: (async (u: string) => {
+      calls++; if (calls === 1) throw new TypeError('Unable to resolve host "archive.org": No address associated with hostname');
+      const url = String(u); if (url.includes('advancedsearch')) return res({ response: { docs: [{ identifier: 'ok' }] } });
+      return res({ metadata: { title: 'Tum Hi Ho', creator: 'Arijit Singh', licenseurl: 'https://creativecommons.org/licenses/by/4.0/' }, files: [mp3] });
+    }) as unknown as typeof fetch });
+    const c = await s.search(Q('Tum Hi Ho', 'Arijit Singh')); expect(c).toHaveLength(1); expect(c[0].download.permitted).toBe(true);
+  }, 10000);
 });
 
 describe('SoundCloud source & download permission', () => {
@@ -104,6 +117,10 @@ describe('SoundCloud source & download permission', () => {
     expect(preview.download.permitted).toBe(false); expect(preview.full_length).toBe(false); expect(limit.download.reason).toMatch(/limit/); expect(nourl.download.permitted).toBe(false);
   });
   it('explains restricted API access', async () => { const s = new SoundCloudSource({ clientId: 'x', fetch: (async () => res({}, 401)) as unknown as typeof fetch }); await expect(s.search(Q('a', 'b'))).rejects.toThrow(/restricted/); });
+  it('retries a transient network error instead of failing the whole search', async () => {
+    let calls = 0; const s = new SoundCloudSource({ clientId: 'scid', fetch: (async () => { calls++; if (calls < 2) throw new TypeError('Failed to fetch'); return res([t()]); }) as unknown as typeof fetch });
+    expect((await s.search(Q('Tum Hi Ho', 'Arijit Singh'))).length).toBe(1); expect(calls).toBe(2);
+  }, 10000);
 });
 
 describe('local source', () => {

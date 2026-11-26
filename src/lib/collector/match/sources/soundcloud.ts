@@ -1,4 +1,5 @@
 import type { Candidate, MatchQuery, MatchSource } from '../types';
+import { fetchWithRetry } from './httpRetry';
 
 type ScTrack = { id: number; title: string; duration: number; user?: { username?: string }; artwork_url?: string | null; permalink_url?: string; downloadable?: boolean; download_url?: string | null; has_downloads_left?: boolean; access?: string; streamable?: boolean; license?: string; original_format?: string; genre?: string; label_name?: string };
 
@@ -11,7 +12,7 @@ export class SoundCloudSource implements MatchSource {
   constructor(private d: { fetch: typeof fetch; clientId: string }) {}
   async search(q: MatchQuery, signal?: AbortSignal): Promise<Candidate[]> {
     const url = `https://api.soundcloud.com/tracks?${new URLSearchParams({ q: `${q.title} ${q.artist}`.trim(), client_id: this.d.clientId, limit: '10', linked_partitioning: 'true' })}`;
-    const r = await this.d.fetch(url, { signal });
+    const r = await fetchWithRetry(this.d.fetch, url, { signal });
     if (r.status === 401 || r.status === 403) throw new Error('SoundCloud rejected the client id (API access may be restricted for new apps)');
     if (!r.ok) throw new Error(`SoundCloud HTTP ${r.status}`);
     const j = await r.json() as ScTrack[] | { collection?: ScTrack[] }; const list = Array.isArray(j) ? j : j.collection ?? [];

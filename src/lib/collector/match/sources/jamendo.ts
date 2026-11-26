@@ -1,4 +1,5 @@
 import type { Candidate, MatchQuery, MatchSource } from '../types';
+import { fetchWithRetry } from './httpRetry';
 
 type JamTrack = { id: string | number; name: string; duration: number; artist_name: string; album_name?: string; image?: string; album_image?: string; shareurl?: string; audio?: string; audiodownload?: string; audiodownload_allowed?: boolean; license_ccurl?: string };
 
@@ -9,7 +10,7 @@ export class JamendoSource implements MatchSource {
   async search(q: MatchQuery, signal?: AbortSignal): Promise<Candidate[]> {
     const base = (extra: Record<string, string>) => `https://api.jamendo.com/v3.0/tracks/?${new URLSearchParams({ client_id: this.d.clientId, format: 'json', limit: '10', include: 'musicinfo', audiodlformat: 'mp32', imagesize: '300', ...extra })}`;
     const get = async (extra: Record<string, string>) => {
-      const r = await this.d.fetch(base(extra), { signal }); if (!r.ok) throw new Error(`Jamendo HTTP ${r.status}`);
+      const r = await fetchWithRetry(this.d.fetch, base(extra), { signal }); if (!r.ok) throw new Error(`Jamendo HTTP ${r.status}`);
       const j = await r.json() as { headers?: { status?: string; error_message?: string }; results?: JamTrack[] };
       if (j.headers?.status && j.headers.status !== 'success') throw new Error(`Jamendo: ${j.headers.error_message ?? j.headers.status}`);
       return j.results ?? [];

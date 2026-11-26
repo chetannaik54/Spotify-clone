@@ -1,5 +1,6 @@
 import type { Candidate, MatchQuery, MatchSource } from '../types';
 import { titleSimilarity } from '../normalize';
+import { fetchWithRetry } from './httpRetry';
 
 type Doc = { identifier: string; title?: string | string[]; creator?: string | string[]; licenseurl?: string };
 type IaFile = { name: string; format?: string; size?: string; length?: string; bitrate?: string; source?: string };
@@ -14,15 +15,7 @@ const OPEN_LICENSE = /creativecommons\.org\/(licenses|publicdomain)\/|creativeco
 export class ArchiveSource implements MatchSource {
   id = 'archive' as const; name = 'Internet Archive';
   constructor(private d: { fetch: typeof fetch; maxItems?: number }) {}
-  /** Network errors (DNS blips on mobile data/Wi-Fi roaming) are retried twice with a short back-off; HTTP status errors are not. */
-  private async get(url: string, signal?: AbortSignal): Promise<Response> {
-    let last: unknown;
-    for (let i = 0; i < 3; i++) {
-      try { return await this.d.fetch(url, { signal }); }
-      catch (e) { last = e; if (signal?.aborted) throw e; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
-    }
-    throw last;
-  }
+  private get(url: string, signal?: AbortSignal): Promise<Response> { return fetchWithRetry(this.d.fetch, url, { signal }); }
   async search(q: MatchQuery, signal?: AbortSignal): Promise<Candidate[]> {
     const esc = (s: string) => s.replace(/["\\()\[\]:^~*?]/g, ' ').replace(/\s+/g, ' ').trim();
     const artist = esc(q.artist.split(/[,;&]/)[0] ?? '');
@@ -35,7 +28,7 @@ export class ArchiveSource implements MatchSource {
     const plausible = docs.filter(d => !first(d.title) || titleSimilarity(q.title, first(d.title)) >= 0.6);   // no title = can't judge, keep it
     for (const doc of plausible.slice(0, this.d.maxItems ?? 4)) {
       try {
-        const mr = await this.d.fetch(`https://archive.org/metadata/${encodeURIComponent(doc.identifier)}`, { signal }); if (!mr.ok) continue;
+        const mr = await this.get(`https://archive.org/metadata/${encodeURIComponent(doc.identifier)}`, signal); if (!mr.ok) continue;
         const m = await mr.json() as { files?: IaFile[]; metadata?: Record<string, unknown>; is_dark?: boolean };
         const md = m.metadata ?? {}; const files = (m.files ?? []).filter(f => /mp3|flac|ogg/i.test(f.format ?? ''));
         const pick = AUDIO_PREF.map(p => files.find(f => f.format === p)).find(Boolean) ?? files[0];
